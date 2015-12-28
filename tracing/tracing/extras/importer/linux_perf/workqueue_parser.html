@@ -66,7 +66,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const kthread = this.importer.getOrCreateKernelThread(
           eventBase.threadName, pid, pid);
       if (kthread.openSlice) {
-        const slice = new tr.model.ThreadSlice('', kthread.openSlice,
+        const slice = new tr.model.CpuSlice('', kthread.openSlice,
             ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
             kthread.openSliceTS,
             {},
@@ -97,4 +97,3 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   };
 });
 </script>
-

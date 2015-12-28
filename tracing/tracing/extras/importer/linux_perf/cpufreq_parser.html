@@ -61,7 +61,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       // TODO(sleffler) should be per-cpu
       const kthread = this.importer.getOrCreatePseudoThread('cpufreq');
       kthread.openSlice = eventName;
-      const slice = new tr.model.ThreadSlice('', kthread.openSlice,
+      const slice = new tr.model.CpuSlice('', kthread.openSlice,
           ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
           ts, args, 0);
 
@@ -71,7 +71,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     cpufreqBoostSlice(ts, eventName, args) {
       const kthread = this.importer.getOrCreatePseudoThread('cpufreq_boost');
       kthread.openSlice = eventName;
-      const slice = new tr.model.ThreadSlice('', kthread.openSlice,
+      const slice = new tr.model.CpuSlice('', kthread.openSlice,
           ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
           ts, args, 0);
 
@@ -111,4 +111,3 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   };
 });
 </script>
-
