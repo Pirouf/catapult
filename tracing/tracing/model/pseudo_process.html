@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/model/process.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Provides the Process class.
+ */
+tr.exportTo('tr.model', function() {
+  var Process = tr.model.Process;
+
+  /**
+   * The PseudoProcess represents a fake userland Process in the
+   * trace.
+   * @constructor
+   */
+  function PseudoProcess(model, name) {
+    if (model === undefined)
+      throw new Error('model must be provided');
+    if (name === undefined)
+      throw new Error('name must be provided');
+    tr.model.Process.call(this, model, 0);
+    this.name = name;
+  };
+
+  PseudoProcess.prototype = {
+    __proto__: tr.model.Process.prototype,
+
+
+    get userFriendlyName() {
+      return this.name;
+    },
+
+    get userFriendlyDetails() {
+      return this.name;
+    },
+  };
+
+  return {
+    PseudoProcess: PseudoProcess
+  };
+});
+</script>

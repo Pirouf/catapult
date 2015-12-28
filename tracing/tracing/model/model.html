@@ -29,6 +29,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/object_snapshot.html">
 <link rel="import" href="/tracing/model/process.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
+<link rel="import" href="/tracing/model/pseudo_process.html">
 <link rel="import" href="/tracing/model/sample.html">
 <link rel="import" href="/tracing/model/stack_frame.html">
 <link rel="import" href="/tracing/model/user_model/user_expectation.html">
@@ -55,6 +56,7 @@ found in the LICENSE file.
  */
 tr.exportTo('tr', function() {
   const Process = tr.model.Process;
+  const PseudoProcess = tr.model.PseudoProcess;
   const Device = tr.model.Device;
   const Kernel = tr.model.Kernel;
   const GlobalMemoryDump = tr.model.GlobalMemoryDump;
@@ -242,6 +244,16 @@ tr.exportTo('tr', function() {
         this.processes[pid] = new Process(this, pid);
       }
       return this.processes[pid];
+    },
+
+    /**
+     * @return {Process} Gets a TimelineProcess for a specified pid or
+     * creates one if it does not exist.
+     */
+    getOrCreatePseudoProcess: function(name) {
+      if (!this.processes[name])
+        this.processes[name] = new PseudoProcess(this, name);
+      return this.processes[name];
     },
 
     addStackFrame(stackFrame) {
