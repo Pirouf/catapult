@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/core/test_utils.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/ftrace_importer.html">
+
+<script>
+'use strict';
+
+tr.b.unittest.testSuite(function() {
+  test('runtimePmImport', function() {
+    var lines = [
+      ' <...>-1594  [000] d..2   389.445786: rpm_resume: ' +
+        'mmc0:0001 flags-4 cnt-1  dep-0  auto-1 p-0 irq-0 child-0',
+      ' <...>-1594  [000] d..2   389.446411: rpm_suspend: ' +
+        'mmc0:0001 flags-d cnt-0  dep-0  auto-1 p-0 irq-0 child-0',
+      ' <...>-6624  [000] d..2   349.310236: rpm_resume: ' +
+        '0000:00:02.0 flags-4 cnt-2  dep-0  auto-1 p-0 irq-0 child-0',
+      ' <idle>-0    [000] dNs3   352.472214: rpm_suspend: ' +
+        '0000:00:02.0 flags-9 cnt-0  dep-0  auto-1 p-0 irq-0 child-0',
+      ' kworker/3:1-1167  [003] d..2   349.274407: rpm_resume: ' +
+        '0000:00:14.0 flags-4 cnt-1  dep-0  auto-1 p-0 irq-0 child-0',
+      ' kworker/3:1-1167  [003] d..2   349.278794: rpm_idle: ' +
+        '0000:00:14.0 flags-1 cnt-1  dep-0  auto-1 p-0 irq-0 child-0',
+      ' kworker/3:5-8407  [003] d..2   387.920473: rpm_suspend: ' +
+        '0000:00:14.0 flags-a cnt-0  dep-0  auto-1 p-0 irq-0 child-0'
+    ];
+    var m = tr.c.TestUtils.newModelWithEvents([lines.join('\n')], {
+      shiftWorldToZero: false
+    });
+    assert.isFalse(m.hasImportWarnings);
+
+    var processes = m.getAllProcesses();
+    assert.equal(processes.length, 1);
+
+    var threads = m.getAllThreads();
+    assert.equal(threads.length, 3);
+
+    var thread1 = processes[0].getThread('mmc0:0001');
+    assert.isDefined(thread1);
+    assert.equal(thread1.sliceGroup.length, 1);
+
+    var thread2 = processes[0].getThread('0000:00:02.0');
+    assert.isDefined(thread2);
+    assert.equal(thread2.sliceGroup.length, 1);
+
+    var thread3 = processes[0].getThread('0000:00:14.0');
+    assert.isDefined(thread3);
+    assert.equal(thread3.sliceGroup.length, 2);
+  });
+});
+</script>

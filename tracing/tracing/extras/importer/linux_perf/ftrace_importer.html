@@ -28,10 +28,13 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/linux_perf/msm_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/power_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/regulator_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/pm_qos_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/runtime_pm_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/rss_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/sched_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/sync_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/thermal_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/wakeup_source_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/workqueue_parser.html">
 <link rel="import" href="/tracing/importer/importer.html">
 <link rel="import" href="/tracing/importer/simple_line_reader.html">
@@ -78,6 +81,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.eventHandlers_ = {};
     this.haveClockSyncedMonotonicToGlobal_ = false;
     this.clockDomainId_ = tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL;
+    this.endHandlers_ = [];
+    this.firstTs_ = undefined;
+    this.lastTs_ = undefined;
   }
 
   const TestExports = {};
@@ -323,6 +329,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return this.model_;
     },
 
+    get firstTs() {
+      return this.firstTs_;
+    },
+
+    get lastTs() {
+      return this.lastTs_;
+    },
+
     /**
      * Imports clock sync markers into model_.
      */
@@ -359,6 +373,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
               this.clockDomainId_);
 
       this.importCpuData_(modelTimeTransformer);
+      this.callEndHandlers(this.lastTs_);
       this.buildMapFromLinuxPidsToThreads_();
       this.buildPerThreadCpuSlicesFromCpuState_();
     },
@@ -720,6 +735,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
+     * Registers a linux perf event parser used by importCpuData.
+     */
+    registerEndHandler: function(handler) {
+      this.endHandlers_.push(handler);
+    },
+
+    /**
      * Processes a trace_event_clock_sync event.
      */
     traceClockSyncEvent_(eventName, cpuNumber, pid, ts, eventBase) {
@@ -848,6 +870,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
+     * Call registered end handlers
+     */
+    callEndHandlers: function(end_ts) {
+      // Call all end handlers registered
+      for (var i = 0; i < this.endHandlers_.length; i++) {
+        this.endHandlers_[i](end_ts);
+      }
+    },
+
+    /**
      * Walks the this.events_ structure and populates this.lines_.
      */
     parseLines_() {
@@ -868,6 +900,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           lineParser = this.parseLine_(line, lineParser);
         }
       }
+      this.lastTs_ = 0;
     },
 
     parseLine_(line, lineParser) {
@@ -904,12 +937,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         return lineParser;
       }
 
+      if (this.firstTs_ == undefined) {
+        this.firstTs_ = parseFloat(eventBase.timestamp) * 1000
+      }
+      this.lastTs_ = parseFloat(eventBase.timestamp) * 1000;
+
       this.lines_.push([
         line,
         eventBase,
         parseInt(eventBase.cpuNumber),
         parseInt(eventBase.pid),
-        parseFloat(eventBase.timestamp) * 1000
+	this.lastTs_
       ]);
       return lineParser;
     },

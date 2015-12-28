@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2012 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses wakeup source events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+
+  var ColorScheme = tr.b.ColorScheme;
+  var Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses linux cpufreq trace events.
+   * @constructor
+   */
+  function WakeupSourceParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('wakeup_source_activate',
+        WakeupSourceParser.prototype.WSActivateEvent.bind(this));
+    importer.registerEventHandler('wakeup_source_deactivate',
+        WakeupSourceParser.prototype.WSDeactivateEvent.bind(this));
+
+    importer.registerEndHandler(
+        WakeupSourceParser.prototype.wakeupSourceCloseAll.bind(this));
+
+    this.wakeupSources_ = {};
+  }
+
+  function splitData(input) {
+    var data = {};
+    var args = input.split(/\s+/);
+    var len = args.length;
+    data["name"] = args[0]
+    for (var i = 1; i < len; i++) {
+      var item = args[i].split('=');
+      data[item[0]] = parseInt(item[1]);
+    }
+    return data;
+  }
+
+  WakeupSourceParser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses wakeup_source_activate events and sets up state in the importer.
+     */
+    WSActivateEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+      var data = splitData(eventBase.details);
+      var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
+      var thread = process.getOrCreateThread(data["name"]);
+      thread.sliceGroup.beginSlice(null, data["name"], ts);
+      this.wakeupSources_[data["name"]] = "active"
+      return true;
+    },
+
+    /**
+     * Parses wakeup_source_deactivate events and sets up state in the importer.
+     */
+    WSDeactivateEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+      var data = splitData(eventBase.details);
+      var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
+      var thread = process.getOrCreateThread(data["name"]);
+      var openSliceCnt = thread.sliceGroup.openSliceCount;
+      if (openSliceCnt == 0) {
+        thread.sliceGroup.beginSlice(null, data["name"], this.importer.firstTs);
+      }
+      thread.sliceGroup.endSlice(ts);
+      this.wakeupSources_[data["name"]] = "released"
+      return true;
+    },
+
+    /**
+     * Closes all open slices at the end.
+     */
+    wakeupSourceCloseAll: function(ts) {
+      for (var key in this.wakeupSources_) {
+        var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
+        var thread = process.getOrCreateThread(key);
+        if (thread.sliceGroup.openSliceCount > 0) {
+          thread.sliceGroup.endSlice(ts);
+        }
+      }
+      return true;
+    },
+  };
+
+  Parser.register(WakeupSourceParser);
+
+  return {
+    WakeupSourceParser: WakeupSourceParser
+  };
+});
+</script>

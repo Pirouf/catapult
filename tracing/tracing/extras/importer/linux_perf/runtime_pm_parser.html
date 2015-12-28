@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2012 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses rpm events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+
+  var ColorScheme = tr.b.ColorScheme;
+  var Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses linux cpufreq trace events.
+   * @constructor
+   */
+  function RpmParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('rpm_resume',
+        RpmParser.prototype.rpmResumeEvent.bind(this));
+    importer.registerEventHandler('rpm_suspend',
+        RpmParser.prototype.rpmSuspendEvent.bind(this));
+    importer.registerEventHandler('rpm_idle',
+        RpmParser.prototype.rpmIdleEvent.bind(this));
+
+    importer.registerEndHandler(RpmParser.prototype.rpmCloseAll.bind(this));
+
+    this.devicesStates_ = {};
+  }
+
+  function splitData(input) {
+    var data = {};
+    var args = input.split(/\s+/);
+    var len = args.length;
+    data["device"] = args[0]
+    for (var i = 1; i < len; i++) {
+      var item = args[i].split('-');
+      data[item[0]] = parseInt(item[1]);
+    }
+    return data;
+  }
+
+  RpmParser.prototype = {
+    __proto__: Parser.prototype,
+
+    handleEvent: function(device, ts, state) {
+      if (state != this.devicesStates_[device]) {
+        var process = this.importer.model_.getOrCreatePseudoProcess("runtime_pm");
+        var thread = process.getOrCreateThread(device);
+        // suspend without previous resume/idle
+        if (state == "SUSPEND" && thread.sliceGroup.length == 0) {
+          thread.sliceGroup.beginSlice('', device
+                              + " not suspended", this.importer.firstTs);
+        }
+        // suspend or line already opened
+        var openSliceCnt = thread.sliceGroup.openSliceCount;
+        if (state == "SUSPEND" || openSliceCnt > 0) {
+          thread.sliceGroup.endSlice(ts);
+        }
+        if (state == "IDLE") {
+          thread.sliceGroup.beginSlice('', device + " idle", ts);
+        } else if (state == "RESUME") {
+          thread.sliceGroup.beginSlice('', device + " active", ts);
+        }
+      }
+      this.devicesStates_[device] = state;
+      return true;
+    },
+
+    /**
+     * Parses rpm_resume events and sets up state in the importer.
+     */
+    rpmResumeEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+      var data = splitData(eventBase.details);
+      return this.handleEvent(data["device"], ts, "RESUME");
+    },
+
+    /**
+     * Parses rpm_suspend events and sets up state in the importer.
+     */
+    rpmSuspendEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+      var data = splitData(eventBase.details);
+      return this.handleEvent(data["device"], ts, "SUSPEND");
+    },
+
+    /**
+     * Parses rpm_idle events and sets up state in the importer.
+     */
+    rpmIdleEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
+      var data = splitData(eventBase.details);
+      return this.handleEvent(data["device"], ts, "IDLE");
+    },
+
+    /**
+     * Closes all open slices at the end.
+     */
+    rpmCloseAll: function(ts) {
+      for (var key in this.devicesStates_) {
+        var process = this.importer.model_.getOrCreatePseudoProcess("runtime_pm");
+        var thread = process.getOrCreateThread(key);
+        if (thread.sliceGroup.openSliceCount > 0) {
+          thread.sliceGroup.endSlice(ts);
+        }
+      }
+      return true;
+    },
+  };
+
+  Parser.register(RpmParser);
+
+  return {
+    RpmParser: RpmParser
+  };
+});
+</script>
