@@ -302,6 +302,7 @@ tracing_js_html_files = [
   "tracing/model/process.html",
   "tracing/model/process_base.html",
   "tracing/model/process_memory_dump.html",
+  "tracing/model/pseudo_process.html",
   "tracing/model/profile_node.html",
   "tracing/model/profile_tree.html",
   "tracing/model/proxy_selectable_item.html",
