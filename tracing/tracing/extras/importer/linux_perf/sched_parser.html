@@ -64,6 +64,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     schedSwitchEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = schedSwitchRE.exec(eventBase.details);
       if (!event) return false;
+
+      const prevComm = event[1];
+      const prevPid = event[2];
       const prevState = event[4];
       const nextComm = event[5];
       const nextPid = parseInt(event[6]);
@@ -101,6 +104,19 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             prio: nextPrio
           });
 
+      var process = this.getPseudoProcess();
+      if (prevPid) {
+        var prevThread = process.getOrCreateThread(prevComm + ':' + prevPid);
+        var openSliceCnt = prevThread.sliceGroup.openSliceCount;
+        if (openSliceCnt > 0) {
+          prevThread.sliceGroup.endSlice(ts);
+        }
+      }
+      if (nextPid) {
+        var name = nextComm + ':' + nextPid
+        var nextThread = process.getOrCreateThread(name);
+        nextThread.sliceGroup.beginSlice('', name , ts);
+      }
       return true;
     },
 
@@ -148,6 +164,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       this.importer.addPidBlockedReason(ts, pid, iowait, caller);
       return true;
+    },
+
+    getPseudoProcess: function() {
+      if (this.process == undefined) {
+        this.process = this.importer.model_.getOrCreatePseudoProcess("All processes");
+      }
+      return this.process;
     }
   };
 
