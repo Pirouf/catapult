@@ -95,7 +95,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
-        const slice = new tr.model.ThreadSlice(
+        const slice = new tr.model.CpuSlice(
             '',
             'IRQ (' + thread.irqName + ')',
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
@@ -135,7 +135,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
-        const slice = new tr.model.ThreadSlice(
+        const slice = new tr.model.CpuSlice(
             '', action,
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
             thread.lastEntryTs, { vec },
@@ -166,7 +166,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
-        const slice = new tr.model.ThreadSlice(
+        const slice = new tr.model.CpuSlice(
             '',
             'IPI (' + ipiName + ')',
             ColorScheme.getColorIdForGeneralPurposeString(ipiName),
