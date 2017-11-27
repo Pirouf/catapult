@@ -96,7 +96,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.]' +
+      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
@@ -121,7 +121,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const lineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.]' +
+      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithIRQInfo = function(line) {
     const groups = lineREWithIRQInfo.exec(line);
