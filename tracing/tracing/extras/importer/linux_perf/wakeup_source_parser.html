@@ -15,8 +15,8 @@ found in the LICENSE file.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
 
-  var ColorScheme = tr.b.ColorScheme;
-  var Parser = tr.e.importer.linux_perf.Parser;
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
 
   /**
    * Parses linux cpufreq trace events.
@@ -30,23 +30,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     importer.registerEventHandler('wakeup_source_deactivate',
         WakeupSourceParser.prototype.WSDeactivateEvent.bind(this));
 
-    importer.registerEndHandler(
-        WakeupSourceParser.prototype.wakeupSourceCloseAll.bind(this));
-
-    this.wakeupSources_ = {};
   }
 
-  function splitData(input) {
-    var data = {};
-    var args = input.split(/\s+/);
-    var len = args.length;
-    data["name"] = args[0]
-    for (var i = 1; i < len; i++) {
-      var item = args[i].split('=');
-      data[item[0]] = parseInt(item[1]);
-    }
-    return data;
-  }
+  // Matches the workqueue_execute_start record
+  //  wakeup_source_activate: event3 state=0x10a60006
+  const WSActivateEventRE = /(.+) state=(\S+)/;
+  // Matches the workqueue_execute_start record
+  //  wakeup_source_activate: PowerManagerService.WakeLocks state=0x10ab0005
+  const WSDeactivateEvenRE = /(.+) state=(\S+)/;
 
   WakeupSourceParser.prototype = {
     __proto__: Parser.prototype,
@@ -55,11 +46,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Parses wakeup_source_activate events and sets up state in the importer.
      */
     WSActivateEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
-      var thread = process.getOrCreateThread(data["name"]);
-      thread.sliceGroup.beginSlice(null, data["name"], ts);
-      this.wakeupSources_[data["name"]] = "active"
+      const event = WSActivateEventRE.exec(eventBase.details);
+      if (!event) return false;
+      const kthread = this.importer.getOrCreateKernelThread(
+          eventBase.threadName, pid, pid);
+      kthread.openSliceTS = ts;
+      kthread.openSlice = event[1];
       return true;
     },
 
@@ -67,29 +59,19 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Parses wakeup_source_deactivate events and sets up state in the importer.
      */
     WSDeactivateEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
-      var thread = process.getOrCreateThread(data["name"]);
-      var openSliceCnt = thread.sliceGroup.openSliceCount;
-      if (openSliceCnt == 0) {
-        thread.sliceGroup.beginSlice(null, data["name"], this.importer.firstTs);
+      const event = WSDeactivateEvenRE.exec(eventBase.details);
+      if (!event) return false;
+      const kthread = this.importer.getOrCreateKernelThread(
+          eventBase.threadName, pid, pid);
+      if (kthread.openSlice) {
+        const slice = new tr.model.ThreadSlice('', kthread.openSlice,
+            ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
+            kthread.openSliceTS,
+            { state },
+            ts - kthread.openSliceTS);
+        kthread.thread.sliceGroup.pushSlice(slice);
       }
-      thread.sliceGroup.endSlice(ts);
-      this.wakeupSources_[data["name"]] = "released"
-      return true;
-    },
-
-    /**
-     * Closes all open slices at the end.
-     */
-    wakeupSourceCloseAll: function(ts) {
-      for (var key in this.wakeupSources_) {
-        var process = this.importer.model_.getOrCreatePseudoProcess("wakeup_source");
-        var thread = process.getOrCreateThread(key);
-        if (thread.sliceGroup.openSliceCount > 0) {
-          thread.sliceGroup.endSlice(ts);
-        }
-      }
+      kthread.openSlice = undefined;
       return true;
     },
   };
