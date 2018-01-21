@@ -104,18 +104,18 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             prio: nextPrio
           });
 
-      var process = this.getPseudoProcess();
+      const process = this.getPseudoProcess();
       if (prevPid) {
-        var prevThread = process.getOrCreateThread(prevComm + ':' + prevPid);
+        var prevTask = process.getOrCreateThread(prevComm + ':' + prevPid);
         var openSliceCnt = prevThread.sliceGroup.openSliceCount;
         if (openSliceCnt > 0) {
-          prevThread.sliceGroup.endSlice(ts);
+          prevTask.sliceGroup.endSlice(ts);
         }
       }
       if (nextPid) {
         var name = nextComm + ':' + nextPid
-        var nextThread = process.getOrCreateThread(name);
-        nextThread.sliceGroup.beginSlice('', name , ts);
+        var nextTask = process.getOrCreateThread(name);
+        nextTask.sliceGroup.beginSlice('', name , ts);
       }
       return true;
     },
