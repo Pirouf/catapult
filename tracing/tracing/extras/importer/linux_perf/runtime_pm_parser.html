@@ -15,8 +15,8 @@ found in the LICENSE file.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
 
-  var ColorScheme = tr.b.ColorScheme;
-  var Parser = tr.e.importer.linux_perf.Parser;
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
 
   /**
    * Parses linux cpufreq trace events.
@@ -31,88 +31,139 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         RpmParser.prototype.rpmSuspendEvent.bind(this));
     importer.registerEventHandler('rpm_idle',
         RpmParser.prototype.rpmIdleEvent.bind(this));
-
-    importer.registerEndHandler(RpmParser.prototype.rpmCloseAll.bind(this));
-
-    this.devicesStates_ = {};
   }
 
-  function splitData(input) {
-    var data = {};
-    var args = input.split(/\s+/);
-    var len = args.length;
-    data["device"] = args[0]
-    for (var i = 1; i < len; i++) {
-      var item = args[i].split('-');
-      data[item[0]] = parseInt(item[1]);
+  // Matches the rpm_resume record
+  //rpm_resume: 0000:01:00.0 flags-0 cnt-1  dep-0  auto-0 p-0 irq-0 child-0
+  const rpmResumeRE = /(.+) flags-(\d+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+  // Matches the rpm_suspend record
+  // rpm_suspend: mmc0:0001 flags-d cnt-0  dep-0  auto-1 p-0 irq-0 child-0
+  const rpmSuspendRE = /(.+) flags-(\d+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+  // Matches the rpm_idle record
+  // rpm_idle: 0000:00:14.0 flags-1 cnt-1  dep-0  auto-1 p-0 irq-0 child-0
+  const rpmIdleRE = /(.+) flags-(\d+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+
+
+  function pushLastSliceIfNeeded(thread, id, currentTs) {
+    if (thread.lastEntryTs !== undefined) {
+      const duration = currentTs - thread.lastEntryTs;
+      const slice = new tr.model.ThreadSlice(
+            '', thread.lastEntryTitle,
+            ColorScheme.getColorIdForGeneralPurposeString(id),
+            thread.lastEntryTs, thread.lastEntryArgs, duration);
+      thread.thread.sliceGroup.pushSlice(slice);
     }
-    return data;
   }
 
   RpmParser.prototype = {
     __proto__: Parser.prototype,
 
-    handleEvent: function(device, ts, state) {
-      if (state != this.devicesStates_[device]) {
-        var process = this.importer.model_.getOrCreatePseudoProcess("runtime_pm");
-        var thread = process.getOrCreateThread(device);
-        // suspend without previous resume/idle
-        if (state == "SUSPEND" && thread.sliceGroup.length == 0) {
-          thread.sliceGroup.beginSlice('', device
-                              + " not suspended", this.importer.firstTs);
-        }
-        // suspend or line already opened
-        var openSliceCnt = thread.sliceGroup.openSliceCount;
-        if (state == "SUSPEND" || openSliceCnt > 0) {
-          thread.sliceGroup.endSlice(ts);
-        }
-        if (state == "IDLE") {
-          thread.sliceGroup.beginSlice('', device + " idle", ts);
-        } else if (state == "RESUME") {
-          thread.sliceGroup.beginSlice('', device + " active", ts);
-        }
-      }
-      this.devicesStates_[device] = state;
-      return true;
-    },
-
     /**
      * Parses rpm_resume events and sets up state in the importer.
      */
     rpmResumeEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      return this.handleEvent(data["device"], ts, "RESUME");
+      const event = rpmResumeRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const dev_name = event[1];
+      const dev_flags = event[2];
+      const dev_cnt = event[3];
+      const dev_dep = event[4];
+      const dev_auto = event[5];
+      const dev_p = event[6];
+      const dev_irq = event[7];
+      const dev_child = event[8];
+
+      const thread = this.importer.getOrCreatePseudoThread(
+          dev_name);
+
+      pushLastSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastEntryTitle = 'RESUME';
+      thread.lastEntryTs = ts;
+      thread.lastEntryArgs = {
+        'Dev flags': dev_flags,
+        'Dev count': dev_cnt,
+        'Dev dep': dev_dep,
+        'Dev auto': dev_auto,
+        'Dev p': dev_p,
+        'Dev irq': dev_irq,
+        'Dev child': dev_child,
+      };
+      return true;
     },
+
 
     /**
      * Parses rpm_suspend events and sets up state in the importer.
      */
     rpmSuspendEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      return this.handleEvent(data["device"], ts, "SUSPEND");
+      const event = rpmSuspendRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const dev_name = event[1];
+      const dev_flags = event[2];
+      const dev_cnt = event[3];
+      const dev_dep = event[4];
+      const dev_auto = event[5];
+      const dev_p = event[6];
+      const dev_irq = event[7];
+      const dev_child = event[8];
+
+      const thread = this.importer.getOrCreatePseudoThread(
+          dev_name);
+
+      pushLastSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastEntryTitle = 'SUSPEND';
+      thread.lastEntryTs = ts;
+      thread.lastEntryArgs = {
+        'Dev flags': dev_flags,
+        'Dev count': dev_cnt,
+        'Dev dep': dev_dep,
+        'Dev auto': dev_auto,
+        'Dev p': dev_p,
+        'Dev irq': dev_irq,
+        'Dev child': dev_child,
+      };
+      return true;
     },
 
     /**
      * Parses rpm_idle events and sets up state in the importer.
      */
     rpmIdleEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      return this.handleEvent(data["device"], ts, "IDLE");
-    },
+      const event = rpmIdleRE.exec(eventBase.details);
+      if (!event) return false;
 
-    /**
-     * Closes all open slices at the end.
-     */
-    rpmCloseAll: function(ts) {
-      for (var key in this.devicesStates_) {
-        var process = this.importer.model_.getOrCreatePseudoProcess("runtime_pm");
-        var thread = process.getOrCreateThread(key);
-        if (thread.sliceGroup.openSliceCount > 0) {
-          thread.sliceGroup.endSlice(ts);
-        }
-      }
+      const dev_name = event[1];
+      const dev_flags = event[2];
+      const dev_cnt = event[3];
+      const dev_dep = event[4];
+      const dev_auto = event[5];
+      const dev_p = event[6];
+      const dev_irq = event[7];
+      const dev_child = event[8];
+
+      const thread = this.importer.getOrCreatePseudoThread(
+          dev_name);
+
+      pushLastSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastEntryTitle = 'IDLE';
+      thread.lastEntryTs = ts;
+      thread.lastEntryArgs = {
+        'Dev flags': dev_flags,
+        'Dev count': dev_cnt,
+        'Dev dep': dev_dep,
+        'Dev auto': dev_auto,
+        'Dev p': dev_p,
+        'Dev irq': dev_irq,
+        'Dev child': dev_child,
+      };
       return true;
     },
+
   };
 
   Parser.register(RpmParser);

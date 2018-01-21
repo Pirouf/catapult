@@ -26,30 +26,34 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     Parser.call(this, importer);
 
     importer.registerEventHandler('pm_qos_update_request',
-        PmQosParser.prototype.requestEvent.bind(this));
+        PmQosParser.prototype.pmQosUpdateRequest.bind(this));
     importer.registerEventHandler('pm_qos_add_request',
-        PmQosParser.prototype.requestEvent.bind(this));
+        PmQosParser.prototype.pmQosUpdateRequest.bind(this));
     importer.registerEventHandler('pm_qos_remove_request',
-        PmQosParser.prototype.requestEvent.bind(this));
+        PmQosParser.prototype.pmQosUpdateRequest.bind(this));
     importer.registerEventHandler('pm_qos_update_target',
-        PmQosParser.prototype.updateTargetEvent.bind(this));
-
-    importer.registerEndHandler(
-        PmQosParser.prototype.pmQosCloseAll.bind(this));
-
-    this.pmQosClasses_ = {};
+        PmQosParser.prototype.pmQosUpdateTarget.bind(this));
+ 
     this.lastRequestClass = undefined
+
   }
 
-  function splitData(input) {
-    var data = {};
-    var args = input.split(/\s+/);
-    var len = args.length;
-    for (var i = 0; i < len; i++) {
-      var item = args[i].split('=');
-      data[item[0]] = item[1];
+  // Matches the pm_qos_update_request record
+  //  pm_qos_update_request: pm_qos_class=CPU_DMA_LATENCY value=20
+  const pmQosUpdateRequestRE = /pm_qos_class=(.+) value=(\d+)/;
+  // Matches the pm_qos_update_target record
+  //  workqueue_execute_end: action=UPDATE_REQ prev_value=2000000000 curr_value=20
+  const pmQosUpdateTargetRE = /action=(.+) prev_value=(\d+) curr_value=(\d+)/;
+
+  function pushLastSliceIfNeeded(thread, id, currentTs) {
+    if (thread.lastEntryTs !== undefined) {
+      const duration = currentTs - thread.lastEntryTs;
+      const slice = new tr.model.ThreadSlice(
+            '', thread.lastEntryTitle,
+            ColorScheme.getColorIdForGeneralPurposeString(id),
+            thread.lastEntryTs, thread.lastEntryArgs, duration);
+      thread.thread.sliceGroup.pushSlice(slice);
     }
-    return data;
   }
 
   PmQosParser.prototype = {
@@ -58,42 +62,52 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     /**
      * Parses pm_qos_update_request events and sets up state in the importer.
      */
-    requestEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      this.pmQosClasses_[data["pm_qos_class"]] = data["value"]
-      this.lastRequestClass = data["pm_qos_class"]
+    pmQosUpdateRequest: function(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = pmQosUpdateRequestRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const pmQosClass = event[1];
+      const req_value = event[2];
+
+      const process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
+      const thread = process.getOrCreateThread(pmQosClass);
+      
+      pushLastSliceIfNeeded(thread, 'update_request', ts);
+      
+      thread.lastEntryTitle = 'update_request:' + req_value;
+      thread.lastEntryTs = ts;
+      thread.lastEntryArgs = {
+        'value': req_value
+      };
+
+      this.lastRequestClass = pmQosClass;
+
       return true;
     },
 
     /**
      * Parses pm_qos_update_target events and sets up state in the importer.
      */
-    updateTargetEvent: function(eventName, cpuNumber, pid, ts, eventBase) {
-      var data = splitData(eventBase.details);
-      if (this.lastRequestClass !== undefined) {
-        var process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
-        var thread = process.getOrCreateThread(this.lastRequestClass);
-        var openSliceCnt = thread.sliceGroup.openSliceCount;
-        if (openSliceCnt == 0) {
-          thread.sliceGroup.beginSlice(null, this.lastRequestClass + ": " + data["prev_value"], this.importer.firstTs);
-        }
-        thread.sliceGroup.endSlice(ts);
-        thread.sliceGroup.beginSlice(null, this.lastRequestClass + ": " + data["curr_value"], ts);
-      }
-      return true;
-    },
+    pmQosUpdateTarget: function(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = pmQosUpdateTargetRE.exec(eventBase.details);
+      if (!event) return false;
 
-    /**
-     * Closes all open slices at the end.
-     */
-    pmQosCloseAll: function(ts) {
-      for (var key in this.pmQosClasses_) {
-        var process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
-        var thread = process.getOrCreateThread(key);
-        if (thread.sliceGroup.openSliceCount > 0) {
-          thread.sliceGroup.endSlice(ts);
-        }
-      }
+      const action = event[1];
+      const prev_value = event[2];
+      const curr_value = event[3];      
+
+      const process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
+      const thread = process.getOrCreateThread(this.lastRequestClass);
+      
+      pushLastSliceIfNeeded(thread, action, ts);
+      
+      thread.lastEntryTitle = action + curr_value;
+      thread.lastEntryTs = ts;
+      thread.lastEntryArgs = {
+        'prev_value': prev_value,
+        'curr_value': curr_value
+      };
+
       return true;
     },
   };
