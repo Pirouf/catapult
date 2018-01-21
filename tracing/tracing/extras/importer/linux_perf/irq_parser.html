@@ -46,6 +46,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         IrqParser.prototype.irqoffStartEvent.bind(this));
     importer.registerEventHandler('irq_enable',
         IrqParser.prototype.irqoffEndEvent.bind(this));
+    importer.registerEventHandler('x86_platform_ipi_entry',
+        IrqParser.prototype.ipiEntryEvent.bind(this));
+    importer.registerEventHandler('x86_platform_ipi_exit',
+        IrqParser.prototype.ipiExitEvent.bind(this));
   }
 
   // Matches the irq_handler_entry record
