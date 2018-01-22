@@ -74,6 +74,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.wakeups_ = [];
     this.blockedReasons_ = [];
     this.kernelThreadStates_ = {};
+    this.userThreadStates_ = {};    
     this.buildMapFromLinuxPidsToThreads_();
     this.lines_ = [];
     this.pseudoThreadCounter = 1;
@@ -398,6 +399,28 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         this.threadsByLinuxPid[tid] = thread;
       }
       return this.kernelThreadStates_[kernelThreadName];
+    },
+
+    /**
+     * Processes can have multiple threads.
+     * thread names are not unique across processes we therefore need to
+     * keep more information in order to return the correct threads.
+     */
+    getOrCreateUserThread(userThreadName, pid, tid) {
+      const key = userThreadName + pid + tid;
+      if (!this.userThreadStates_[key]) {
+        const thread = this.model_.getOrCreatePseudoProcess(pid).getOrCreateThread(
+            tid);
+        thread.name = userThreadName;
+        this.userThreadStates_[key] = {
+          pid,
+          thread,
+          openSlice: undefined,
+          openSliceTS: undefined
+        };
+        this.threadsByLinuxPid[pid] = thread;
+      }
+      return this.userThreadStates_[key];
     },
 
     /**
