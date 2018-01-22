@@ -55,6 +55,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const unknownThreadName = '<...>';
 
+  // Matches the irq/threads sched record
+  const IrqRE =
+      /irq\/(\d+)-(\S+)/;
+  TestExports.IrqRE = IrqRE;
+
   SchedParser.prototype = {
     __proto__: Parser.prototype,
 
@@ -67,6 +72,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const prevComm = event[1];
       const prevPid = event[2];
+      const prevPrio = event[3];      
       const prevState = event[4];
       const nextComm = event[5];
       const nextPid = parseInt(event[6]);
@@ -104,19 +110,38 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             prio: nextPrio
           });
 
-      const process = this.getPseudoProcess();
+      const prev_sched = IrqRE.exec(prevComm);
+      let prevTask;
       if (prevPid) {
-        var prevTask = process.getOrCreateThread(prevComm + ':' + prevPid);
-        var openSliceCnt = prevThread.sliceGroup.openSliceCount;
-        if (openSliceCnt > 0) {
-          prevTask.sliceGroup.endSlice(ts);
+        if (prev_sched) 
+          prevTask = this.importer.getOrCreateKernelThread(prevComm + ':' + prevPid, 0, prevPid);
+        else 
+          prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "All processes", prevPid);
+
+        if (prevTask.openSlice) {
+          const slice = new tr.model.ThreadSlice('', prevTask.openSlice,
+              ColorScheme.getColorIdForGeneralPurposeString(prevComm),
+              prevTask.openSliceTS,
+              { prevPrio },
+              ts - prevTask.openSliceTS);
+          prevTask.thread.sliceGroup.pushSlice(slice);
         }
+        prevTask.openSlice = undefined;
       }
+
+      const next_sched = IrqRE.exec(nextComm);
+      let nextTask;      
       if (nextPid) {
-        var name = nextComm + ':' + nextPid
-        var nextTask = process.getOrCreateThread(name);
-        nextTask.sliceGroup.beginSlice('', name , ts);
+        const name = nextComm + ':' + nextPid
+        if (next_sched) 
+          nextTask = this.importer.getOrCreateKernelThread(name, 0, nextPid);
+        else 
+          nextTask = this.importer.getOrCreateUserThread(name, "All processes", nextPid);
+
+        nextTask.openSliceTS = ts;
+        nextTask.openSlice = name;
       }
+
       return true;
     },
 
