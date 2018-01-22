@@ -69,8 +69,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const pmQosClass = event[1];
       const req_value = event[2];
 
-      const process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
-      const thread = process.getOrCreateThread(pmQosClass);
+      const thread = this.importer.getOrCreatePseudoThread(
+          pmQosClass);      
       
       pushLastSliceIfNeeded(thread, 'update_request', ts);
       
@@ -96,9 +96,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const prev_value = event[2];
       const curr_value = event[3];      
 
-      const process = this.importer.model_.getOrCreatePseudoProcess("pm_qos");
-      const thread = process.getOrCreateThread(this.lastRequestClass);
-      
+      const thread = this.importer.getOrCreatePseudoThread(
+          this.lastRequestClass);      
       pushLastSliceIfNeeded(thread, action, ts);
       
       thread.lastEntryTitle = action + curr_value;
