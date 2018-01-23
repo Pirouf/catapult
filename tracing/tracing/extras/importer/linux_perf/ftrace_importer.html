@@ -471,7 +471,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       // pids, which identify threads.  The rest of trace-viewer refers to
       // these as tids, so the change of nomenclature happens in the following
       // construction of the wakeup object.
-      this.wakeups_.push({ts, tid: pid, fromTid: fromPid});
+      this.wakeups_.push({ts, tid: pid, fromTid: fromPid, 'prio': prio});
     },
 
     /**
@@ -575,7 +575,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           if (wakeups.length && wakeups[0].ts < slice.start) {
             const wakeup = wakeups.shift();
             const wakeupDuration = slice.start - wakeup.ts;
-            const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.curPrio};
+            const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.prio};
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
                 wakeup.ts, args, wakeupDuration));
