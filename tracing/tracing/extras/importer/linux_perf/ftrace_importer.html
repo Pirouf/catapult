@@ -94,7 +94,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
@@ -119,7 +119,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const lineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithIRQInfo = function(line) {
     const groups = lineREWithIRQInfo.exec(line);
@@ -575,7 +575,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           if (wakeups.length && wakeups[0].ts < slice.start) {
             const wakeup = wakeups.shift();
             const wakeupDuration = slice.start - wakeup.ts;
-            const args = {'wakeup from tid': wakeup.fromTid};
+            const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.curPrio};
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
                 wakeup.ts, args, wakeupDuration));
@@ -583,7 +583,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
           const runningSlice = new tr.model.ThreadTimeSlice(
               thread, SCHEDULING_STATE.RUNNING, '',
-              slice.start, {}, slice.duration);
+              slice.start, { 'name' : thread.name }, slice.duration);
           runningSlice.cpuOnWhichThreadWasRunning = slice.cpu;
           slices.push(runningSlice);
         }
@@ -617,7 +617,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             }
 
             if (blockedReason !== undefined) {
-              const args = {
+              const args = { 'name' : thread.name, 
                 'kernel callsite when blocked:': blockedReason.caller
               };
               if (blockedReason.iowait) {
@@ -640,11 +640,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             } else {
               slices.push(new tr.model.ThreadTimeSlice(
                   thread,
-                  state, '', prevSlice.end, {}, midDuration));
+                  state, '', prevSlice.end, { 'name' : thread.name }, midDuration));
             }
             if (wakeup !== undefined) {
               const wakeupDuration = nextSlice.start - wakeup.ts;
-              const args = {'wakeup from tid': wakeup.fromTid};
+              const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.curPrio};
               slices.push(new tr.model.ThreadTimeSlice(
                   thread, SCHEDULING_STATE.RUNNABLE, '',
                   wakeup.ts, args, wakeupDuration));
@@ -658,37 +658,37 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
                      prevSlice.args.stateWhenDescheduled === 'R+') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'D') {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP);
           } else if (prevSlice.args.stateWhenDescheduled === 'T') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.STOPPED, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 't') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.DEBUG, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'Z') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.ZOMBIE, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'X') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.EXIT_DEAD, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'x') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.TASK_DEAD, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'K') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.WAKE_KILL, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'W') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.WAKING, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'D|K') {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL);
           } else if (prevSlice.args.stateWhenDescheduled === 'D|W') {
@@ -696,7 +696,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           } else {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.UNKNOWN, '',
-                prevSlice.end, {}, midDuration));
+                prevSlice.end, { 'name' : thread.name }, midDuration));
             this.model_.importWarning({
               type: 'parse_error',
               message: 'Unrecognized sleep state: ' +
@@ -706,11 +706,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
           const runningSlice = new tr.model.ThreadTimeSlice(
               thread, SCHEDULING_STATE.RUNNING, '',
-              nextSlice.start, {}, nextSlice.duration);
+              nextSlice.start, { 'name' : thread.name }, nextSlice.duration);
           runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
           slices.push(runningSlice);
         }
         thread.timeSlices = slices;
+
       }, this);
     },
 
