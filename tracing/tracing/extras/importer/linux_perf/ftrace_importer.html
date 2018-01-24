@@ -60,6 +60,7 @@ found in the LICENSE file.
 tr.exportTo('tr.e.importer.linux_perf', function() {
   const MONOTONIC_TO_FTRACE_GLOBAL_SYNC_ID =
       'linux_clock_monotonic_to_ftrace_global';
+  const ColorScheme = tr.b.ColorScheme;      
 
   const IMPORT_PRIORITY = 2;
 
@@ -568,28 +569,48 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         // Walk the slice list and put slices between each original slice to
         // show when the thread isn't running.
         const slices = [];
+        let wakeup = undefined;
+        let wakeupDuration = 0;
+        let wakeupTS = undefined;
+        let args = {};
 
         if (origSlices.length) {
           const slice = origSlices[0];
 
+          args = { 'name' : thread.name, 'tid' : thread.tid };
+
           if (wakeups.length && wakeups[0].ts < slice.start) {
-            const wakeup = wakeups.shift();
-            const wakeupDuration = slice.start - wakeup.ts;
-            const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.prio};
+            wakeup = wakeups.shift();
+            wakeupTS =  wakeup.ts;
+            wakeupDuration = slice.start - wakeup.ts;
+            args = { 'name' : thread.name, 'tid' : thread.tid, 'prio': wakeup.prio, 'wakeup from tid': wakeup.fromTid};
+
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
-                wakeup.ts, args, wakeupDuration));
+                wakeupTS, args, wakeupDuration));
+          } else {
+              wakeupDuration = 0;
+              wakeupTS = slice.start;
           }
+
+          const sliceTask = new tr.model.ThreadSlice('', thread.name,
+              ColorScheme.getColorIdForGeneralPurposeString(thread.name),
+              wakeupTS,
+              args,
+              wakeupDuration + slice.duration, slice.start, slice.duration );
+          thread.sliceGroup.pushSlice(sliceTask);
 
           const runningSlice = new tr.model.ThreadTimeSlice(
               thread, SCHEDULING_STATE.RUNNING, '',
-              slice.start, { 'name' : thread.name }, slice.duration);
+              slice.start, args, slice.duration);
           runningSlice.cpuOnWhichThreadWasRunning = slice.cpu;
           slices.push(runningSlice);
         }
 
         for (let i = 1; i < origSlices.length; i++) {
           let wakeup = undefined;
+          let wakeupTS = undefined;
+          let wakeupDuration = 0;
           const prevSlice = origSlices[i - 1];
           const nextSlice = origSlices[i];
           let midDuration = nextSlice.start - prevSlice.end;
@@ -611,13 +632,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
           // Push a sleep slice onto the slices list, interrupting it with a
           // wakeup if appropriate.
-          const pushSleep = function(state) {
+          //const pushSleep = function(state, uThreadGroup) {
+            const pushSleep = function(state) {
+            
             if (wakeup !== undefined) {
               midDuration = wakeup.ts - prevSlice.end;
             }
 
             if (blockedReason !== undefined) {
-              const args = { 'name' : thread.name, 
+              args = { 'name' : thread.name, 'tid' : thread.tid,
                 'kernel callsite when blocked:': blockedReason.caller
               };
               if (blockedReason.iowait) {
@@ -640,15 +663,19 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             } else {
               slices.push(new tr.model.ThreadTimeSlice(
                   thread,
-                  state, '', prevSlice.end, { 'name' : thread.name }, midDuration));
+                  state, '', prevSlice.end, args, midDuration));
             }
             if (wakeup !== undefined) {
-              const wakeupDuration = nextSlice.start - wakeup.ts;
-              const args = {'name' : thread.name, 'wakeup from tid': wakeup.fromTid, 'priority': wakeup.curPrio};
+              wakeupDuration = nextSlice.start - wakeup.ts;
+              wakeupTS = wakeup.ts;
+              args = { 'name' : thread.name, 'tid' : thread.tid, 'prio': wakeup.prio, 'wakeup from tid': wakeup.fromTid};
               slices.push(new tr.model.ThreadTimeSlice(
                   thread, SCHEDULING_STATE.RUNNABLE, '',
-                  wakeup.ts, args, wakeupDuration));
+                  wakeupTS, args, wakeupDuration));
               wakeup = undefined;
+            } else {
+              wakeupDuration = 0;
+              wakeupTS = nextSlice.start;
             }
           };
 
@@ -658,37 +685,39 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
                      prevSlice.args.stateWhenDescheduled === 'R+') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
+            wakeupDuration = midDuration;
+            wakeupTS = prevSlice.end;
           } else if (prevSlice.args.stateWhenDescheduled === 'D') {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP);
           } else if (prevSlice.args.stateWhenDescheduled === 'T') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.STOPPED, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args , midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 't') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.DEBUG, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args , midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'Z') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.ZOMBIE, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args , midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'X') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.EXIT_DEAD, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'x') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.TASK_DEAD, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'K') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.WAKE_KILL, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'W') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.WAKING, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
           } else if (prevSlice.args.stateWhenDescheduled === 'D|K') {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL);
           } else if (prevSlice.args.stateWhenDescheduled === 'D|W') {
@@ -696,7 +725,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           } else {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.UNKNOWN, '',
-                prevSlice.end, { 'name' : thread.name }, midDuration));
+                prevSlice.end, args, midDuration));
             this.model_.importWarning({
               type: 'parse_error',
               message: 'Unrecognized sleep state: ' +
@@ -704,11 +733,19 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             });
           }
 
+          const sliceTask = new tr.model.ThreadSlice('', thread.name,
+              ColorScheme.getColorIdForGeneralPurposeString(thread.name),
+              wakeupTS,
+              args,
+              wakeupDuration + nextSlice.duration, nextSlice.start, nextSlice.duration );
+          thread.sliceGroup.pushSlice(sliceTask);
+
           const runningSlice = new tr.model.ThreadTimeSlice(
               thread, SCHEDULING_STATE.RUNNING, '',
-              nextSlice.start, { 'name' : thread.name }, nextSlice.duration);
+              nextSlice.start, args, nextSlice.duration);
           runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
           slices.push(runningSlice);
+
         }
         thread.timeSlices = slices;
 
