@@ -112,36 +112,23 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             prio: nextPrio
           });
 
-      const prev_sched = IrqRE.exec(prevComm);
       let prevTask;
       if (prevPid) {
-        if (prev_sched) 
-          prevTask = this.importer.getOrCreateKernelThread(prevComm + ':' + prevPid, 0, prevPid);
-        else 
-          prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "All processes", prevPid);
+        prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "All processes", prevPid);
 
         if (prevTask.openSlice) {
-          const slice = new tr.model.ThreadSlice('', prevTask.openSlice,
-              ColorScheme.getColorIdForGeneralPurposeString(prevComm),
-              prevTask.openSliceTS,
-              { prevPrio },
-              ts - prevTask.openSliceTS);
-          prevTask.thread.sliceGroup.pushSlice(slice);
+          prevTask.openSliceDuration = ts - prevTask.openSliceTS;
         }
         prevTask.openSlice = undefined;
       }
 
-      const next_sched = IrqRE.exec(nextComm);
       let nextTask;      
       if (nextPid) {
         const name = nextComm + ':' + nextPid
-        if (next_sched) 
-          nextTask = this.importer.getOrCreateKernelThread(name, 0, nextPid);
-        else 
-          nextTask = this.importer.getOrCreateUserThread(name, "All processes", nextPid);
+        nextTask = this.importer.getOrCreateUserThread(name, "All processes", nextPid);
 
         nextTask.openSliceTS = ts;
-        nextTask.openSlice = name;
+        nextTask.openSlice = nextName;
       }
 
       return true;
