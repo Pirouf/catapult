@@ -85,7 +85,14 @@ tr.exportTo('tr.ui.analysis', function() {
           tr.b.Unit.byName.timeDurationInMs, slice[fieldName]));
     }
     diagnostics.args = new tr.v.d.GenericSet([slice.args]);
-    //diagnostics.event = new tr.v.d.RelatedEventSet(slice);
+
+    let sliceRange = {};
+    if (slice.analysisTypeName === 'tr.ui.analysis.ThreadTimeSlice')
+      sliceRange =
+        tr.b.math.Range.fromExplicitRange(slice.start, slice.end);
+    else 
+      diagnostics.event = new tr.v.d.RelatedEventSet(slice);
+
     return diagnostics;
   }
 
