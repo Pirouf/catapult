@@ -88,17 +88,42 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   const TestExports = {};
 
   // Matches the trace record in 3.2 and later with the print-tgid option:
-  //          <idle>-0    0 [001] d...  1.23: sched_switch
-  //
+  // withTGID
+  //          <idle>-0     [000] (-----) dN..3..  2484.980174: sched_wakeup: comm=ktimersoftd/0 pid=8 prio=98 target_cpu=000
+  // withTGIDpatch
+  //          <idle>-0     (-----) [001] dN..3..   905.243560: sched_wakeup: comm=ksoftirqd/1 pid=20 prio=120 target_cpu=001
   // A TGID (Thread Group ID) is basically what the Linux kernel calls what
   // userland refers to as a process ID (as opposed to a Linux pid, which is
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
-      '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
+      '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
       '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
+    if (!groups) return groups;
+
+    let tgid = groups[4];
+    if (tgid[0] === '-') tgid = undefined;
+
+    return {
+      threadName: groups[1],
+      pid: groups[2],
+      tgid,
+      cpuNumber: groups[3],
+      timestamp: groups[5],
+      eventName: groups[6],
+      details: groups[7]
+    };
+  };
+  TestExports.lineParserWithTGID = lineParserWithTGID;
+
+  const lineREWithTGIDpatch = new RegExp(
+      '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
+      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
+  const lineParserWithTGIDpatch = function(line) {
+    const groups = lineREWithTGIDpatch.exec(line);
     if (!groups) return groups;
 
     let tgid = groups[3];
@@ -114,7 +139,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       details: groups[7]
     };
   };
-  TestExports.lineParserWithTGID = lineParserWithTGID;
+  TestExports.lineParserWithTGIDpatch = lineParserWithTGIDpatch;
 
   // Matches the default trace record in 3.2 and later (includes irq-info):
   //          <idle>-0     [001] d...  1.23: sched_switch
@@ -179,6 +204,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   function autoDetectLineParser(line) {
     if (line[0] === '{') return false;
     if (lineREWithTGID.test(line)) return lineParserWithTGID;
+    if (lineREWithTGIDpatch.test(line)) return lineParserWithTGIDpatch;
     if (lineREWithIRQInfo.test(line)) return lineParserWithIRQInfo;
     if (lineREWithLegacyFmt.test(line)) return lineParserWithLegacyFmt;
     return undefined;
