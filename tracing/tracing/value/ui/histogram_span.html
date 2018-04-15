@@ -407,6 +407,10 @@ tr.exportTo('tr.v.ui', function() {
         }
       }
 
+      maps = maps.sort(function(a,b) {
+        return b.get("duration").value.value-a.get("duration").value.value
+      })
+
       if (this.$.merge_sample_diagnostics.checked !==
           this.viewState.mergeSampleDiagnostics) {
         this.viewState.update({
