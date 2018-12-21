@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/math/range.html">
+<link rel="import" href="/tracing/model/slice.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.model', function() {
+  const Slice = tr.model.Slice;
+
+
+  const COBALT_CORE_STATE_MASK = {
+      XNSUSP:     0x00000001, /**< Suspended. */
+      XNPEND:     0x00000002, /**< Sleep-wait for a resource. */
+      XNDELAY:    0x00000004, /**< Delayed */
+      XNREADY:    0x00000008, /**< Linked to the ready queue. */
+      XNDORMANT:  0x00000010, /**< Not started yet */
+      XNZOMBIE:   0x00000020, /**< Zombie thread in deletion process */
+      XNMAPPED:   0x00000040, /**< Thread is mapped to a linux task */
+      XNRELAX:    0x00000080, /**< Relaxed shadow thread (blocking bit) */
+      XNMIGRATE:  0x00000100, /**< Thread is currently migrating to another CPU. */
+      XNHELD:     0x00000200, /**< Thread is held to process emergency. */
+      XNBOOST:    0x00000400, /**< Undergoes a PIP boost */
+      XNSSTEP:    0x00000800, /**< Single-stepped by debugger */
+      XNLOCK:     0x00001000, /**< Scheduler lock control (pseudo-bit, not in ->state) */
+      XNRRB:      0x00002000, /**< Undergoes a round-robin scheduling */
+      XNWARN:     0x00004000, /**< Issue SIGDEBUG on error detection */
+      XNFPU:      0x00008000, /**< Thread uses FPU */
+      XNROOT:     0x00010000, /**< Root thread (that is, Linux/IDLE) */
+      XNWEAK:     0x00020000, /**< Non real-time shadow (from the WEAK class) */
+      XNUSER:     0x00040000, /**< Shadow thread running in userland */
+      XNJOINED:   0x00080000, /**< Another thread waits for joining this thread */
+      XNTRAPLB:   0x00100000, /**< Trap lock break (i.e. may not sleep with sched lock) */
+      XNDEBUG:    0x00200000 /**< User-level debugging enabled */
+  };
+
+  const COBALT_CORE_STATE = {
+    XNSUSP:    'Suspended.',
+    XNPEND:    'Sleep-wait for a resource.',
+    XNDELAY:   'Delayed',
+    XNREADY:   'Linked to the ready queue.',
+    XNDORMANT: 'Not started yet',
+    XNZOMBIE:  'Zombie thread in deletion process',
+    XNMAPPED:  'Thread is mapped to a linux task',
+    XNRELAX:   'Relaxed shadow thread (blocking bit)',
+    XNMIGRATE: 'Thread is currently migrating to another CPU.',
+    XNHELD:    'Thread is held to process emergency.',
+    XNBOOST:   'Undergoes a PIP boost',
+    XNSSTEP:   'Single-stepped by debugger',
+    XNLOCK:    'Scheduler lock control (pseudo-bit, not in ->state)',
+    XNRRB:     'Undergoes a round-robin scheduling',
+    XNWARN:    'Issue SIGDEBUG on error detection',
+    XNFPU:     'Thread uses FPU',
+    XNROOT:    'Root thread (that is, Linux/IDLE)',
+    XNWEAK:    'Non real-time shadow (from the WEAK class)',
+    XNUSER:    'Shadow thread running in userland',
+    XNJOINED:  'Another thread waits for joining this thread',
+    XNTRAPLB:  'Trap lock break (i.e. may not sleep with sched lock)',
+    XNDEBUG:   'User-level debugging enabled',
+    XNKNOWN:   'Unknown'
+  };
+
+  const XNTHREAD_BLOCK_BITS  = (COBALT_CORE_STATE_MASK.XNSUSP|COBALT_CORE_STATE_MASK.XNPEND|COBALT_CORE_STATE_MASK.XNDELAY|COBALT_CORE_STATE_MASK.XNDORMANT|COBALT_CORE_STATE_MASK.XNRELAX|COBALT_CORE_STATE.XNMIGRATE|COBALT_CORE_STATE_MASK.XNHELD);
+
+  /**
+   * A xnThreadTimeSlice is a slice of time on a specific xnthread where that thread
+   * was running on a specific CPU, or in a specific sleep state.
+   *
+   * As a xnthread switches moves through its life, it sometimes goes to sleep and
+   * can't run. Other times, its runnable but isn't actually assigned to a CPU.
+   * Finally, sometimes it gets put on a CPU to actually execute. Each of these
+   * states is represented by a xnThreadTimeSlice:
+   *
+   *   Sleeping or runnable: cpuOnWhichThreadWasRunning is undefined
+   *   Running:  cpuOnWhichThreadWasRunning is set.
+   *
+   * @constructor
+   */
+  function xnThreadTimeSlice(thread, schedulingState, cat,
+      start, args, opt_duration) {
+    Slice.call(this, cat, schedulingState,
+        this.getColorForState_(schedulingState),
+        start, args, opt_duration);
+    this.thread = thread;
+    this.schedulingState = schedulingState;
+    this.cpuOnWhichThreadWasRunning = undefined;
+  }
+
+  xnThreadTimeSlice.prototype = {
+    __proto__: Slice.prototype,
+
+    getColorForState_(state) {
+      const getColorIdForReservedName =
+          tr.b.ColorScheme.getColorIdForReservedName;
+
+      switch (state) {
+        case COBALT_CORE_STATE.XNREADY:
+          return getColorIdForReservedName('thread_state_runnable');
+        case COBALT_CORE_STATE.XNROOT:
+        case COBALT_CORE_STATE.XNWEAK:
+        case COBALT_CORE_STATE.XNUSER:        
+        case COBALT_CORE_STATE.XNBOOST:
+        case COBALT_CORE_STATE.XNRRB:                
+        case COBALT_CORE_STATE.XNFPU:                
+          return getColorIdForReservedName('thread_state_running');
+        case COBALT_CORE_STATE.XNRELAX:
+        case COBALT_CORE_STATE.XNSUSP:
+        case COBALT_CORE_STATE.XNDELAY:
+        case COBALT_CORE_STATE.XNDORMANT:
+        case COBALT_CORE_STATE.XNMIGRATE:
+        case COBALT_CORE_STATE.XNHELD:
+          return getColorIdForReservedName('thread_state_sleeping');
+        case COBALT_CORE_STATE.XNWARN:
+        case COBALT_CORE_STATE.XNTRAPLB:
+          return getColorIdForReservedName('thread_state_uninterruptible');
+        case COBALT_CORE_STATE.XNPEND:
+        case COBALT_CORE_STATE.XNJOINED:
+        case COBALT_CORE_STATE.XNLOCK:
+        case COBALT_CORE_STATE.XNMAPPED:
+          return getColorIdForReservedName('thread_state_iowait');
+        case COBALT_CORE_STATE.XNSSTEP:
+        case COBALT_CORE_STATE.XNDEBUG:
+        default:
+          return getColorIdForReservedName('thread_state_unknown');
+      }
+    },
+
+    get analysisTypeName() {
+      return 'tr.ui.analysis.xnThreadTimeSlice';
+    },
+
+    getAssociatedCpuSlice() {
+      if (!this.cpuOnWhichThreadWasRunning) return undefined;
+      const cpuSlices = this.cpuOnWhichThreadWasRunning.slices;
+      for (let i = 0; i < cpuSlices.length; i++) {
+        const cpuSlice = cpuSlices[i];
+        if (cpuSlice.start !== this.start) continue;
+        if (cpuSlice.duration !== this.duration) continue;
+        return cpuSlice;
+      }
+      return undefined;
+    },
+
+    getCpuSliceThatTookCpu() {
+      if (this.cpuOnWhichThreadWasRunning) return undefined;
+      let curIndex = this.thread.indexOfTimeSlice(this);
+      let cpuSliceWhenLastRunning;
+      while (curIndex >= 0) {
+        const curSlice = this.thread.timeSlices[curIndex];
+        if (!curSlice.cpuOnWhichThreadWasRunning) {
+          curIndex--;
+          continue;
+        }
+        cpuSliceWhenLastRunning = curSlice.getAssociatedCpuSlice();
+        break;
+      }
+      if (!cpuSliceWhenLastRunning) return undefined;
+
+      const cpu = cpuSliceWhenLastRunning.cpu;
+      const indexOfSliceOnCpuWhenLastRunning =
+          cpu.indexOf(cpuSliceWhenLastRunning);
+      const nextRunningSlice = cpu.slices[indexOfSliceOnCpuWhenLastRunning + 1];
+      if (!nextRunningSlice) return undefined;
+      if (Math.abs(nextRunningSlice.start - cpuSliceWhenLastRunning.end) <
+          0.00001) {
+        return nextRunningSlice;
+      }
+      return undefined;
+    }
+  };
+
+  tr.model.EventRegistry.register(
+      xnThreadTimeSlice,
+      {
+        name: 'xnThreadTimeSlice',
+        pluralName: 'xnThreadTimeSlice'
+      });
+
+
+  return {
+    xnThreadTimeSlice,
+    COBALT_CORE_STATE,
+    COBALT_CORE_STATE_MASK,
+    XNTHREAD_BLOCK_BITS,
+  };
+});
+
+</script>

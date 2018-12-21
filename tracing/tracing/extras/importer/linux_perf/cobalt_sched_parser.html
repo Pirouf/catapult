@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2012 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+<link rel="import" href="/tracing/model/counter.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses Cobalt scheduler events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses Xenomai (Cobalt) sched trace events.
+   * @constructor
+   */
+  function xnSchedParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('cobalt_switch_context',
+        xnSchedParser.prototype.xnSchedSwitchEvent.bind(this));
+    importer.registerEventHandler('cobalt_synch_wakeup',
+        xnSchedParser.prototype.xnSchedSyncWakeupEvent.bind(this));
+    importer.registerEventHandler('cobalt_lostage_wakeup',
+        xnSchedParser.prototype.xnSchedLostageWakeupEvent.bind(this));
+    importer.registerEventHandler('cobalt_shadow_gohard',
+        xnSchedParser.prototype.xnSchedShadowGohardEvent.bind(this));
+    importer.registerEventHandler('cobalt_shadow_hardened',
+        xnSchedParser.prototype.xnSchedShadowHardenedEvent.bind(this));
+    importer.registerEventHandler('cobalt_shadow_gorelax',
+        xnSchedParser.prototype.xnSchedShadowGorelaxEvent.bind(this));
+    importer.registerEventHandler('cobalt_shadow_relaxed',
+        xnSchedParser.prototype.xnSchedShadowRelaxedEvent.bind(this));
+  }
+
+  const TestExports = {};
+
+  // Matches the cobalt_switch_context record
+  // Example: cobalt_switch_context: prev=ffff8801ffc245c0(ROOT/0) next=ffffc90001b87040(sampling-2562)
+  const xnSchedSwitchRE = new RegExp(
+      'prev=([0-9a-f]+)(.+) next=([0-9a-f]+)(.+)');
+  TestExports.xnSchedSwitchRE = xnSchedSwitchRE;
+
+  // TODO [FLO]
+  // Matches sched_blocked_reason record
+  //const schedBlockedRE = new RegExp('pid=(\\d+) iowait=(\\d) caller=(.+)');
+  //TestExports.schedSwitchRE = schedSwitchRE;
+
+  // Matches the cobalt_lostage_wakeup: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_lostage_wakeup: pid=2564 comm=display-2562   
+  const xnSchedLostageWakeupRE =
+      /pid=(\d+) comm=(.+)/;
+  TestExports.xnSchedLostageWakeupRE = xnSchedLostageWakeupRE;
+
+  // Matches the cobalt_synch_wakeup: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_synch_wakeup: synch=ffffc90001b89128   
+  const xnSchedSyncWakeupRE =
+      /synch=([0-9a-f]+)/;
+  TestExports.xnSchedSyncWakeupRE = xnSchedSyncWakeupRE;
+
+  // Matches the cobalt_shadow_gohard: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_gohard: thread=ffffc90001b85040(display-2562) pid=2564 state=0x600c0 info=0x0   
+  const xnSchedShadowGohardRE =
+      /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowGohardRE = xnSchedShadowGohardRE;
+
+  // Matches the cobalt_shadow_hardened: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_hardened: thread=ffffc90001b85040(display-2562) pid=2564 state=0x60040 info=0x0   
+  const xnSchedShadowHardenedRE =
+      /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowHardenedRE = xnSchedShadowHardenedRE;
+
+  // Matches the cobalt_shadow_gorelax: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_gorelax: thread=ffffc90001b85040 reason=undefined   
+  const xnSchedShadowGorelaxRE =
+      /thread=([0-9a-f]+) reason=(.+)/;
+  TestExports.xnSchedShadowGorelaxRE = xnSchedShadowGorelaxRE;
+
+  // Matches the cobalt_shadow_relaxed: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_relaxed: thread=ffffc90001b85040(display-2562) pid=2564 state=0x600c0 info=0x0   
+  const xnSchedShadowRelaxedRE =
+      /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowRelaxedRE = xnSchedShadowRelaxedRE;
+
+  xnSchedParser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses scheduler events and sets up state in the CPUs of the importer.
+     */
+    xnSchedSwitchEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSwitchRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const prevXnid = event[1];
+      const prevComm = event[2];
+      const nextXnid = event[3];      
+      const nextComm = event[4];
+
+      let prevTask;
+      if (prevXnid) {
+        prevTask = this.importer.getOrCreatePseudoXnThread(prevComm, "Xenomai/Cobalt tasks", prevXnid);
+
+        if (prevTask.openSlice) {
+          prevTask.openSliceDuration = ts - prevTask.openSliceTS;
+        }
+        prevTask.openSlice = undefined;        
+      }
+
+      let nextTask;      
+      if (nextXnid) {
+        nextTask = this.importer.getOrCreatePseudoXnThread(nextComm, "Xenomai/Cobalt tasks", nextXnid);
+/* */
+        nextTask.openSliceTS = ts;
+        nextTask.openSlice = nextComm;
+      }
+
+      let xpid;
+      if (nextComm !== '(ROOT/'+ cpuNumber +')') {
+        xpid = nextTask.pid;
+      } else {
+        xpid = 0; //corresponding to idle state
+      }
+
+      prevTask.lastarg = nextTask.lastarg;
+
+      const cpu = this.importer.getOrCreateCpu(cpuNumber);
+      cpu.switchActiveThread(
+          ts,
+          nextTask.lastarg,
+          xpid,
+          nextComm,
+          {
+            comm: nextComm,
+            tid: nextTask.thread.tid,
+            xnid: nextXnid,
+          });
+
+      return true;
+    },
+
+    xnSchedShadowGohardEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGohardRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const xnid = event[1];
+      const comm = event[2];
+      const fromPid = parseInt(event[3]);
+      const state = event[4];
+      const info = event[5];
+
+      if (xnid) {
+        const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
+        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+        xnthread.openSliceTS = ts;
+        xnthread.openSlice = comm;
+      }
+      this.importer.markXnidGohard(ts, pid, comm, xnid, fromPid, state, info);
+
+      return true;
+    },
+
+    xnSchedShadowHardenedEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowHardenedRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const xnid = event[1];
+      const comm = event[2];
+      const fromPid = parseInt(event[3]);
+      const state = event[4];
+      const info = event[5];
+
+      if (xnid) {
+        const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
+        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+      }
+      this.importer.markXnidHardened(ts, pid, comm, xnid, fromPid, state,info);
+
+      return true;
+    },
+
+    xnSchedShadowGorelaxEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGorelaxRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const fromPid = pid;
+      const xnid = event[1];
+      const xnreason = event[2];
+
+      this.importer.markXnidGorelaxReason(ts, xnid, fromPid, xnreason);
+      return true;
+    },
+    
+    xnSchedShadowRelaxedEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowRelaxedRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const xnid = event[1];
+      const comm = event[2];
+      const fromPid = parseInt(event[3]);
+      const state = event[4];
+      const info = event[5];
+
+      if (xnid) {
+        const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
+        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+        if (xnthread.openSlice) {
+          xnthread.openSliceDuration = ts - xnthread.openSliceTS;
+        }
+        xnthread.openSlice = undefined;        
+      }
+      this.importer.markXnidRelaxed(ts, pid, comm, xnid, fromPid, state, info);
+      return true;
+    },
+
+    xnSchedSyncWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSyncWakeupRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const fromPid = pid;
+      const xnid = event[1];
+      this.importer.markXnSyncPt(ts, xnid, cpuNumber, fromPid);
+      return true;
+    },
+
+    xnSchedLostageWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedLostageWakeupRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const fromPid = pid;
+      pid = parseInt(event[1]);
+      const comm = event[2];
+      this.importer.markPidLostage(ts, pid, comm, fromPid);
+      return true;
+    },
+  };
+
+  Parser.register(xnSchedParser);
+
+  return {
+    xnSchedParser,
+    _xnSchedParserTestExports: TestExports
+  };
+});
+
+</script>
