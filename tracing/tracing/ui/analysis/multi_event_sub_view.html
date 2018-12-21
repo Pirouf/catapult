@@ -90,6 +90,9 @@ tr.exportTo('tr.ui.analysis', function() {
     if (slice.analysisTypeName === 'tr.ui.analysis.ThreadTimeSlice')
       sliceRange =
         tr.b.math.Range.fromExplicitRange(slice.start, slice.end);
+    else if (slice.analysisTypeName === 'tr.ui.analysis.xnThreadTimeSlice')
+      sliceRange =
+        tr.b.math.Range.fromExplicitRange(slice.start, slice.end);
     else 
       diagnostics.event = new tr.v.d.RelatedEventSet(slice);
 
@@ -109,7 +112,7 @@ tr.exportTo('tr.ui.analysis', function() {
     ready() {
       this.$.radioPicker.style.display = 'none';
       this.$.radioPicker.items = EVENT_FIELD;
-      this.$.radioPicker.select('cpuSelfTime');
+      this.$.radioPicker.select('duration');
       this.$.radioPicker.addEventListener('change', () => {
         if (this.isAttached) this.updateContents_();
       });
@@ -160,7 +163,7 @@ tr.exportTo('tr.ui.analysis', function() {
     buildHistogram_(selectedKey) {
       let leftBoundary = Number.MAX_VALUE;
       let rightBoundary = tr.b.math.Statistics.percentile(
-          this.currentSelection_, 0.99,
+          this.currentSelection_, 0.9999,
           function(value) {
             leftBoundary = Math.min(leftBoundary, value[selectedKey]);
             return value[selectedKey];

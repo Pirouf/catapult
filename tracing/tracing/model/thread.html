@@ -24,6 +24,7 @@ tr.exportTo('tr.model', function() {
   const SliceGroup = tr.model.SliceGroup;
   const ThreadSlice = tr.model.ThreadSlice;
   const ThreadTimeSlice = tr.model.ThreadTimeSlice;
+  const xnThreadTimeSlice = tr.model.xnThreadTimeSlice;
 
   /**
    * A Thread stores all the trace events collected for a particular
@@ -46,6 +47,7 @@ tr.exportTo('tr.model', function() {
     this.parent = parent;
     this.sortIndex = 0;
     this.tid = tid;
+    this.xnid = undefined;
     this.name = undefined;
     this.samples_ = undefined; // Set during createSubSlices
 

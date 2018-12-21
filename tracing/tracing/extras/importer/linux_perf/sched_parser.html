@@ -41,7 +41,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // Matches the sched_switch record
   const schedSwitchRE = new RegExp(
       'prev_comm=(.+) prev_pid=(\\d+) prev_prio=(\\d+) ' +
-      'prev_state=(\\S\\+?|\\S\\|\\S) ==> ' +
+      'prev_state=(\\S\\+?|\\S\\|\\S|S\|.*) ==> ' +
       'next_comm=(.+) next_pid=(\\d+) next_prio=(\\d+)');
 
   // Matches sched_blocked_reason record
@@ -114,7 +114,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       let prevTask;
       if (prevPid) {
-        prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "All processes", prevPid);
+        prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "Linux tasks/threads", prevPid);
 
         if (prevTask.openSlice) {
           prevTask.openSliceDuration = ts - prevTask.openSliceTS;
@@ -125,7 +125,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       let nextTask;      
       if (nextPid) {
         const name = nextComm + ':' + nextPid
-        nextTask = this.importer.getOrCreateUserThread(name, "All processes", nextPid);
+        nextTask = this.importer.getOrCreateUserThread(name, "Linux tasks/threads", nextPid);
 
         nextTask.openSliceTS = ts;
         nextTask.openSlice = nextName;
@@ -182,7 +182,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     getPseudoProcess: function() {
       if (this.process == undefined) {
-        this.process = this.importer.model_.getOrCreatePseudoProcess("All processes");
+        this.process = this.importer.model_.getOrCreatePseudoProcess("Linux tasks/threads");
       }
       return this.process;
     }

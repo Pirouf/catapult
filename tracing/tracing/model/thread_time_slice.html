@@ -21,6 +21,7 @@ tr.exportTo('tr.model', function() {
     RUNNABLE: 'Runnable',
     RUNNING: 'Running',
     SLEEPING: 'Sleeping',
+    SLEEPING_XNSHADOW: 'Sleeping (Xenomai-Cobalt offload) ',
     STOPPED: 'Stopped',
     TASK_DEAD: 'Task Dead',
     UNINTR_SLEEP: 'Uninterruptible Sleep',
@@ -72,6 +73,7 @@ tr.exportTo('tr.model', function() {
         case SCHEDULING_STATE.RUNNING:
           return getColorIdForReservedName('thread_state_running');
         case SCHEDULING_STATE.SLEEPING:
+        case SCHEDULING_STATE.SLEEPING_XNSHADOW:
           return getColorIdForReservedName('thread_state_sleeping');
         case SCHEDULING_STATE.DEBUG:
         case SCHEDULING_STATE.EXIT_DEAD:
