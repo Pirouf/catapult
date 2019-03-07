@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2014 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses drm driver events in the Xenomai event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses Xenomai irq trace events.
+   * @constructor
+   */
+  function XenoIrqParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('cobalt_irq_entry',
+        XenoIrqParser.prototype.XenoIrqHandlerEntryEvent.bind(this));
+    importer.registerEventHandler('cobalt_irq_exit',
+        XenoIrqParser.prototype.XenoIrqHandlerExitEvent.bind(this));
+  }
+
+  // Matches the cobalt_irq_entry record
+  const xenoIrqHandlerEntryRE = /irq=(\d+)/;
+
+  // Matches the cobalt_irq_exit record
+  const xenoIrqHandlerExitRE = /irq=(\d+)/;
+
+  XenoIrqParser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses irq events and sets up state in the mporter.
+     */
+    XenoIrqHandlerEntryEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xenoIrqHandlerEntryRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const irq = parseInt(event[1]);
+
+      const thread = this.importer.getOrCreatePseudoThread(
+          'Hi-Prio irqs cpu ' + cpuNumber);
+      thread.lastEntryTs = ts;
+      thread.irqName = '[irq'+irq+']';
+
+      return true;
+    },
+
+    XenoIrqHandlerExitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xenoIrqHandlerExitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const irq = parseInt(event[1]);
+      const thread = this.importer.getOrCreatePseudoThread(
+          'Hi-Prio irqs cpu ' + cpuNumber);
+
+      if (thread.lastEntryTs !== undefined) {
+        const duration = ts - thread.lastEntryTs;
+        const slice = new tr.model.CpuSlice(
+            '',
+            'IRQ (' + thread.irqName + ')',
+            ColorScheme.getColorIdForGeneralPurposeString(event[1]),
+            thread.lastEntryTs, {},
+            duration);
+        thread.thread.sliceGroup.pushSlice(slice);
+      }
+      thread.lastEntryTs = undefined;
+      thread.irqName = undefined;
+      return true;
+    },
+
+  };
+
+  Parser.register(XenoIrqParser);
+
+  return {
+    XenoIrqParser,
+  };
+});
+</script>
