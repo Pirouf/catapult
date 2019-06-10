@@ -30,6 +30,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         xnSchedParser.prototype.xnSchedSwitchEvent.bind(this));
     importer.registerEventHandler('cobalt_synch_wakeup',
         xnSchedParser.prototype.xnSchedSyncWakeupEvent.bind(this));
+    importer.registerEventHandler('cobalt_synch_sleepon',
+        xnSchedParser.prototype.xnSchedSyncSleeponEvent.bind(this));
     importer.registerEventHandler('cobalt_lostage_wakeup',
         xnSchedParser.prototype.xnSchedLostageWakeupEvent.bind(this));
     importer.registerEventHandler('cobalt_shadow_gohard',
@@ -63,6 +65,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       /pid=(\d+) comm=(.+)/;
   TestExports.xnSchedLostageWakeupRE = xnSchedLostageWakeupRE;
 
+  // Matches the cobalt_synch_sleepon: record
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_synch_sleepon: synch=ffffbc44c014e128 thread=ffffbc44c014c040(sampling-852)
+  const xnSchedSyncSleeponRE =
+      /synch=([0-9a-f]+) thread=([0-9a-f]+)\((.+)\)/;
+  TestExports.xnSchedSyncSleeponRE = xnSchedSyncSleeponRE;
+
   // Matches the cobalt_synch_wakeup: record
   // success=? is optional not all kernels report it, so don't include
   // it in the capture groups
@@ -92,7 +102,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // it in the capture groups
   // Example: cobalt_shadow_gorelax: thread=ffffc90001b85040 reason=undefined   
   const xnSchedShadowGorelaxRE =
-      /thread=([0-9a-f]+) reason=(.+)/;
+      /thread=([0-9a-f]+) reason=([a-z]+)/;
   TestExports.xnSchedShadowGorelaxRE = xnSchedShadowGorelaxRE;
 
   // Matches the cobalt_shadow_relaxed: record
@@ -121,6 +131,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       let prevTask;
       if (prevXnid) {
         prevTask = this.importer.getOrCreatePseudoXnThread(prevComm, "Xenomai/Cobalt tasks", prevXnid);
+        prevTask.thread_name = prevComm;
 
         if (prevTask.openSlice) {
           prevTask.openSliceDuration = ts - prevTask.openSliceTS;
@@ -132,9 +143,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (nextXnid) {
         nextTask = this.importer.getOrCreatePseudoXnThread(nextComm, "Xenomai/Cobalt tasks", nextXnid);
 /* */
+        nextTask.thread_name = nextComm;
         nextTask.openSliceTS = ts;
         nextTask.openSlice = nextComm;
       }
+
+      prevTask.lastarg = { stateWhenDescheduled: this.importer.prevRootSchedState, xnStateWhenDescheduled : this.importer.prevHeadSchedState};
 
       let xpid;
       if (nextComm !== '(ROOT/'+ cpuNumber +')') {
@@ -143,12 +157,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         xpid = 0; //corresponding to idle state
       }
 
-      prevTask.lastarg = nextTask.lastarg;
-
       const cpu = this.importer.getOrCreateCpu(cpuNumber);
       cpu.switchActiveThread(
           ts,
-          nextTask.lastarg,
+          prevTask.lastarg,
           xpid,
           nextComm,
           {
@@ -169,10 +181,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const fromPid = parseInt(event[3]);
       const state = event[4];
       const info = event[5];
-
+/*
+*/
       if (xnid) {
         const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
-        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+        //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
+        xnthread.thread_name = comm;
         xnthread.openSliceTS = ts;
         xnthread.openSlice = comm;
       }
@@ -190,10 +204,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const fromPid = parseInt(event[3]);
       const state = event[4];
       const info = event[5];
+      this.prevHeadSchedState = 'M';
+/*
+*/
 
       if (xnid) {
         const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
-        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+        //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
+        xnthread.thread_name = comm;
       }
       this.importer.markXnidHardened(ts, pid, comm, xnid, fromPid, state,info);
 
@@ -207,6 +225,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const fromPid = pid;
       const xnid = event[1];
       const xnreason = event[2];
+  
+      this.prevHeadSchedState = 'X';
 
       this.importer.markXnidGorelaxReason(ts, xnid, fromPid, xnreason);
       return true;
@@ -221,10 +241,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const fromPid = parseInt(event[3]);
       const state = event[4];
       const info = event[5];
+      this.prevHeadSchedState = 'X';
 
       if (xnid) {
         const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
-        xnthread.lastarg = { stateWhenDescheduled: this.importer.formatXnThreadState(state) };
+        //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
+        xnthread.thread_name = comm;
         if (xnthread.openSlice) {
           xnthread.openSliceDuration = ts - xnthread.openSliceTS;
         }
@@ -239,8 +261,29 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const fromPid = pid;
-      const xnid = event[1];
-      this.importer.markXnSyncPt(ts, xnid, cpuNumber, fromPid);
+      const xnsync = event[1];
+      this.prevHeadSchedState = 'S';
+
+      this.importer.markXnSyncWake(ts, xnsync, cpuNumber, fromPid);
+      return true;
+    },
+
+    xnSchedSyncSleeponEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSyncSleeponRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const fromPid = pid;
+      const xnsync = event[1];
+      const xnid = event[2];
+      const comm = event[3];
+      this.prevHeadSchedState = 'S';
+
+      if (xnid) {
+        const xnthread = this.importer.getOrCreatePseudoXnThread(comm, "Xenomai/Cobalt tasks", xnid);
+        xnthread.thread.sync = xnsync;
+        //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
+      }
+      this.importer.markXnSyncSleep(ts, xnid, xnsync, cpuNumber, fromPid);
       return true;
     },
 

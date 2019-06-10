@@ -100,10 +100,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         nextName = nextComm;
       }
 
+      this.prevRootSchedState = prevState;
+
       const cpu = this.importer.getOrCreateCpu(cpuNumber);
       cpu.switchActiveThread(
           ts,
-          {stateWhenDescheduled: prevState},
+          {stateWhenDescheduled: this.prevRootSchedState },
           nextPid,
           nextName,
           {
