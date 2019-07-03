@@ -1064,6 +1064,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
           const prevSlice = origSlices[i - 1];
           const nextSlice = origSlices[i];
+          wakeupTS =  nextSlice.start;
+          wakeup = undefined;
+          wakeupDuration = 0;
+          wakeupState = undefined;
           let midDuration = nextSlice.start - prevSlice.end;
           while (wakeups.length && wakeups[0].ts < nextSlice.start) {
             const w = wakeups.shift();
