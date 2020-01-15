@@ -20,7 +20,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   const Parser = tr.e.importer.linux_perf.Parser;
 
   /**
-   * Parses Xenomai (Cobalt) sched trace events.
+   * Parses Xenomai  > 3.0.9 (Cobalt) sched trace events.
    * @constructor
    */
   function xnSchedParser(importer) {
@@ -46,13 +46,21 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const TestExports = {};
 
-  // Matches the cobalt_switch_context record
+  // Matches the cobalt_switch_context record format ONLY Xenomai <3.0.9 
   // Example: cobalt_switch_context: prev=ffff8801ffc245c0(ROOT/0) next=ffffc90001b87040(sampling-2562)
-  const xnSchedSwitchRE = new RegExp(
+  const xnSchedSwitchRELegacy = new RegExp(
       'prev=([0-9a-f]+)(.+) next=([0-9a-f]+)(.+)');
-  TestExports.xnSchedSwitchRE = xnSchedSwitchRE;
+  TestExports.xnSchedSwitchRELegacy = xnSchedSwitchRELegacy;
 
-  // TODO [FLO]
+  // Matches the cobalt_switch_context record Xenomai record format >= 3.0.9 
+  // Example: cobalt_switch_context: prev_name=ROOT/0 prev_pid=0 prev_prio=-1 prev_state=0x18008 ==> next_name=sampling-10038 next_pid=10041 next_prio=99
+  const xnschedSwitchRE = new RegExp(
+      'prev_name=(.+) prev_pid=(\\d+) prev_prio=(\-*\\d+) ' +
+      'prev_state=0x([0-9a-f]+) ==> ' +
+      'next_name=(.+) next_pid=(\\d+) next_prio=(\-*\\d+)');
+  TestExports.xnschedSwitchRE = xnschedSwitchRE;
+
+  // TODO!
   // Matches sched_blocked_reason record
   //const schedBlockedRE = new RegExp('pid=(\\d+) iowait=(\\d) caller=(.+)');
   //TestExports.schedSwitchRE = schedSwitchRE;
@@ -81,36 +89,68 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       /synch=([0-9a-f]+)/;
   TestExports.xnSchedSyncWakeupRE = xnSchedSyncWakeupRE;
 
-  // Matches the cobalt_shadow_gohard: record
+  // Matches the cobalt_shadow_gohard record format ONLY Xenomai < 3.0.9
   // success=? is optional not all kernels report it, so don't include
   // it in the capture groups
   // Example: cobalt_shadow_gohard: thread=ffffc90001b85040(display-2562) pid=2564 state=0x600c0 info=0x0   
-  const xnSchedShadowGohardRE =
+  const xnSchedShadowGohardRELegacy =
       /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowGohardRELegacy = xnSchedShadowGohardRELegacy;
+
+  // Matches the cobalt_shadow_gohard record format ONLY Xenomai >= 3.0.9
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_gohard: cobalt_shadow_relaxed: state=0x680c0 info=0x0   
+  const xnSchedShadowGohardRE =
+      /state=(.+) info=(.+)/;
   TestExports.xnSchedShadowGohardRE = xnSchedShadowGohardRE;
 
-  // Matches the cobalt_shadow_hardened: record
+  // Matches the cobalt_shadow_hardened: record < 3.0.9
   // success=? is optional not all kernels report it, so don't include
   // it in the capture groups
   // Example: cobalt_shadow_hardened: thread=ffffc90001b85040(display-2562) pid=2564 state=0x60040 info=0x0   
-  const xnSchedShadowHardenedRE =
+  const xnSchedShadowHardenedRELegacy =
       /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowHardenedRELegacy = xnSchedShadowHardenedRELegacy;
+
+  // Matches the cobalt_shadow_hardened record format  Xenomai >= 3.0.9
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_hardened: state=0x60040 info=0x0   
+  const xnSchedShadowHardenedRE =
+      /state=(.+) info=(.+)/;
   TestExports.xnSchedShadowHardenedRE = xnSchedShadowHardenedRE;
 
-  // Matches the cobalt_shadow_gorelax: record
+  // Matches the cobalt_shadow_gorelax record format ONLY Xenomai < 3.0.9
   // success=? is optional not all kernels report it, so don't include
   // it in the capture groups
   // Example: cobalt_shadow_gorelax: thread=ffffc90001b85040 reason=undefined   
+  const xnSchedShadowGorelaxRELegacy =
+      /thread=([0-9a-f]+) reason=(.+)/;
+  TestExports.xnSchedShadowGorelaxRELegacy = xnSchedShadowGorelaxRELegacy;
+
+  // Matches the cobalt_shadow_gorelax: record  format Xenomai >= 3.0.9
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_gorelax: reason=undefined   
   const xnSchedShadowGorelaxRE =
-      /thread=([0-9a-f]+) reason=([a-z]+)/;
+      /reason=(.+)/;
   TestExports.xnSchedShadowGorelaxRE = xnSchedShadowGorelaxRE;
 
-  // Matches the cobalt_shadow_relaxed: record
+  // Matches the cobalt_shadow_relaxed: record format Xenomai < 3.0.9
   // success=? is optional not all kernels report it, so don't include
   // it in the capture groups
   // Example: cobalt_shadow_relaxed: thread=ffffc90001b85040(display-2562) pid=2564 state=0x600c0 info=0x0   
-  const xnSchedShadowRelaxedRE =
+  const xnSchedShadowRelaxedRELegacy =
       /thread=([0-9a-f]+)(.+) pid=(\d+) state=(.+) info=(.+)/;
+  TestExports.xnSchedShadowRelaxedRELegacy = xnSchedShadowRelaxedRELegacy;
+
+  // Matches the cobalt_shadow_relaxed: record  format Xenomai >= 3.0.9
+  // success=? is optional not all kernels report it, so don't include
+  // it in the capture groups
+  // Example: cobalt_shadow_relaxed: state=0x680c0 info=0x0   
+  const xnSchedShadowRelaxedRE =
+      /state=(.+) info=(.+)/;
   TestExports.xnSchedShadowRelaxedRE = xnSchedShadowRelaxedRE;
 
   xnSchedParser.prototype = {
@@ -118,9 +158,145 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     /**
      * Parses scheduler events and sets up state in the CPUs of the importer.
+     * !!! cobalt_switch_context  record format Xenomai >= 3.0.9  !! 
      */
     xnSchedSwitchEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedSwitchRE.exec(eventBase.details);
+      const event = xnschedSwitchRE.exec(eventBase.details);
+      if (!event) return xnSchedSwitchEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const prevComm = event[1];
+      const prevXnid = parseInt(event[2]);
+      const prevPrio = parseInt(event[3]);      
+      const prevState = event[4];
+      const nextComm = event[5];
+      const nextXnid = parseInt(event[6]);
+      const nextPrio = parseInt(event[7]);
+
+      if (eventBase.tgid !== undefined) {
+        const tgid = parseInt(eventBase.tgid);
+        const process = this.importer.model_.getOrCreateProcess(tgid);
+        if (!process.getThread(pid)) {
+          const thread = process.getOrCreateThread(pid);
+          thread.name = eventBase.threadName;
+        }
+      }
+
+      const nextThread = this.importer.threadsByLinuxPid[nextXnid];
+      let nextName;
+      if (nextThread) {
+        nextName = nextThread.userFriendlyName;
+      } else {
+        nextName = nextComm;
+      }
+
+
+      let prevTask;
+      if (prevXnid) {
+        prevTask = this.importer.getOrCreateXnThread(prevComm + ':' + prevXnid, "Xenomai/Cobalt tasks", prevXnid, prevXnid );
+
+        if (prevTask.openSlice) {
+          prevTask.openSliceDuration = ts - prevTask.openSliceTS;
+        }
+        prevTask.openSlice = undefined;        
+      }
+
+      let nextTask;      
+      if (nextXnid && (nextComm !== '(ROOT/'+ cpuNumber +')')) {
+        nextTask = this.importer.getOrCreateXnThread(nextComm + ':' + nextXnid, "Xenomai/Cobalt tasks", nextXnid, nextXnid );
+  /* */
+         nextTask.openSliceTS = ts;
+         nextTask.openSlice = nextComm;
+      }
+
+      const cpu = this.importer.getOrCreateCpu(cpuNumber);
+      cpu.switchActiveThread(
+          ts,
+          { stateWhenDescheduled: this.importer.formatXnThreadState(prevState) },
+          nextXnid,
+          nextName,
+          {
+            comm: nextComm,
+            tid: nextXnid,
+            prio: nextPrio
+          });
+
+      return true;
+    },
+
+    xnSchedShadowGohardEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGohardRE.exec(eventBase.details);
+      if (!event) xnSchedShadowGohardEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const state = event[1];
+      const info = event[2];
+
+      //this.importer.markXnidGohardLegacy(ts, pid, comm, pid, pid, state, info);
+      this.importer.markXnidGohard(ts, pid, state, info);
+      return true;
+    },
+
+    xnSchedShadowHardenedEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowHardenedRE.exec(eventBase.details);
+      if (!event) xnSchedShadowHardenedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const state = event[1];
+      const info = event[2];
+
+      //this.importer.markXnidHardenedLegacy(ts, pid, comm, pid, pid, state,info);
+      this.importer.markXnidHardened(ts, pid, state,info);
+      return true;
+    },
+
+    xnSchedShadowGorelaxEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGorelaxRE.exec(eventBase.details);
+      if (!event) xnSchedShadowGorelaxEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const xnreason = event[2];
+
+      //this.importer.markXnidGorelaxReasonLegacy(ts, pid, pid, xnreason);
+      this.importer.markXnidGorelaxReason(ts, pid, xnreason);
+      return true;
+    },
+    
+    xnSchedShadowRelaxedEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowRelaxedRE.exec(eventBase.details);
+      if (!event) xnSchedShadowRelaxedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const state = event[1];
+      const info = event[2];
+
+      //this.importer.markXnidRelaxedLegacy(ts, pid, comm, pid, pid, state, info);
+      this.importer.markXnidRelaxed(ts, pid);
+      return true;
+    },
+
+    xnSchedSyncWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSyncWakeupRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const xnsyncid = event[1];
+
+      this.importer.markXnSyncPt(ts, xnsyncid, cpuNumber, pid);
+      return true;
+    },
+
+    xnSchedLostageWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedLostageWakeupRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const fromPid = pid;
+      pid = parseInt(event[1]);
+      const comm = event[2];
+      this.importer.markPidLostage(ts, pid, comm, fromPid);
+      return true;
+    },
+
+    /**
+     * Parses scheduler events and sets up state in the CPUs of the importer.
+     * !!! cobalt_switch_context record format ONLY Xenomai <= 3.0.9  !! 
+     */
+    xnSchedSwitchEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSwitchRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const prevXnid = event[1];
@@ -172,8 +348,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return true;
     },
 
-    xnSchedShadowGohardEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedShadowGohardRE.exec(eventBase.details);
+    xnSchedShadowGohardEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGohardRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const xnid = event[1];
@@ -190,13 +366,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         xnthread.openSliceTS = ts;
         xnthread.openSlice = comm;
       }
-      this.importer.markXnidGohard(ts, pid, comm, xnid, fromPid, state, info);
+      this.importer.markXnidGohardLegacy(ts, pid, comm, xnid, fromPid, state, info);
 
       return true;
     },
 
-    xnSchedShadowHardenedEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedShadowHardenedRE.exec(eventBase.details);
+    xnSchedShadowHardenedEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowHardenedRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const xnid = event[1];
@@ -213,13 +389,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
         xnthread.thread_name = comm;
       }
-      this.importer.markXnidHardened(ts, pid, comm, xnid, fromPid, state,info);
-
+      this.importer.markXnidHardenedLegacy(ts, pid, comm, xnid, fromPid, state,info);
       return true;
     },
 
-    xnSchedShadowGorelaxEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedShadowGorelaxRE.exec(eventBase.details);
+    xnSchedShadowGorelaxEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowGorelaxRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const fromPid = pid;
@@ -228,12 +403,23 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   
       this.prevHeadSchedState = 'X';
 
-      this.importer.markXnidGorelaxReason(ts, xnid, fromPid, xnreason);
+      this.importer.markXnidGorelaxReasonLegacy(ts, xnid, fromPid, xnreason);
       return true;
     },
     
     xnSchedShadowRelaxedEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowRelaxedRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const state = event[4];
+      const info = event[5];
+
+      this.importer.markXnidRelaxed(ts, pid);
+      return true;
+    },
+
+    xnSchedShadowRelaxedEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedShadowRelaxedRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const xnid = event[1];
@@ -252,11 +438,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         }
         xnthread.openSlice = undefined;        
       }
-      this.importer.markXnidRelaxed(ts, pid, comm, xnid, fromPid, state, info);
+      this.importer.markXnidRelaxedLegacy(ts, pid, comm, xnid, fromPid, state, info);
       return true;
     },
 
-    xnSchedSyncWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+    xnSchedSyncWakeupEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedSyncWakeupRE.exec(eventBase.details);
       if (!event) return false;
 
@@ -287,7 +473,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return true;
     },
 
-    xnSchedLostageWakeupEvent(eventName, cpuNumber, pid, ts, eventBase) {
+    xnSchedLostageWakeupEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedLostageWakeupRE.exec(eventBase.details);
       if (!event) return false;
 
@@ -298,6 +484,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return true;
     },
   };
+
 
   Parser.register(xnSchedParser);
 

@@ -647,11 +647,91 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       this.lostage_.push({ts, tid: pid, fromTid: fromPid});
     },
 
-    /**
+  /*
+   * Xenomai/Cobalt follows a strict declaration order of the state flags
+   * defined above. Status symbols are defined as follows:
+   *
+   * 'S' -> Forcibly suspended.
+   * 'w'/'W' -> Waiting for a resource, with or without timeout.
+   * 'D' -> Delayed (without any other wait condition).
+   * 'R' -> Runnable.
+   * 'U' -> Unstarted or dormant.
+   * 'X' -> Relaxed shadow.
+   * 'H' -> Held in emergency.
+   * 'b' -> Priority boost undergoing.
+   * 'T' -> Ptraced and stopped.
+   * 'l' -> Locks scheduler.
+   * 'r' -> Undergoes round-robin.
+   * 't' -> Runtime mode errors notified.
+   * 'L' -> Lock breaks trapped.
+   */
+    formatXnThreadState(status) {
+      const COBALT_CORE_STATE_MASK = tr.model.COBALT_CORE_STATE_MASK;
+      const XNTHREAD_STATE_LABELS = "SWDRU..X.HbTlrt.....L.";
+      const labels = XNTHREAD_STATE_LABELS;
+
+      let c;
+      let buf = '';
+
+      for (var mask = status, pos = 0;
+       mask != 0 ; 
+       mask >>= 1, pos++) {
+
+          if ((mask & 1) == 0)
+              continue;
+
+/* */
+          c = labels.charAt(pos);
+
+          switch (1 << pos) {
+             case COBALT_CORE_STATE_MASK.XNROOT:
+               c = 'R'; // Always mark root as runnable.
+               break;
+
+             case COBALT_CORE_STATE_MASK.XNREADY:
+               if (status & COBALT_CORE_STATE_MASK.XNROOT)
+                 continue; // Already reported on XNROOT.
+               break;
+
+             case COBALT_CORE_STATE_MASK.XNDELAY:
+              // Only report genuine delays here, not timed waits for resources.
+               if (status & COBALT_CORE_STATE_MASK.XNPEND)
+                 continue;
+               break;
+
+             case COBALT_CORE_STATE_MASK.XNPEND:
+               // Report timed waits with lowercase symbol.
+               if (status & COBALT_CORE_STATE_MASK.XNDELAY)
+                 c |= 0x20;
+               break;
+
+             default:
+               if (c == '.')
+                 continue;
+          }
+          buf += c;
+      }
+      return (buf);
+    },
+
+
+    /** Xenomai >= 3.0.9
      * Records the fact that a xnid has become Hardened. This data will
      * eventually get used to derive each thread's timeSlices array.
      */
-    markXnidGohard(ts, pid, comm, xnid, fromPid, state, info) {
+    markXnidGohard(ts, pid, state, info) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.gohard_.push({ts, tid: pid, 'xnstate': state, 'xninfo': info});
+    },
+
+    /** Xenomai < 3.0.9
+     * Records the fact that a xnid has become Hardened. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markXnidGohardLegacy(ts, pid, comm, xnid, fromPid, state, info) {
       // The the pids that get passed in to this function are Linux kernel
       // pids, which identify threads.  The rest of trace-viewer refers to
       // these as tids, so the change of nomenclature happens in the following
@@ -688,10 +768,30 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       this.gorelax_.push({ts, xnid: xnid, xnreason: xnreason});
     },
     /**
+     * Records the reason why a xnid has gone into uninterruptible sleep.
+     */
+    markXnidGorelaxReasonLegacy(ts, xnid, xnreason) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.gorelax_.push({ts, xnid: xnid, xnreason});
+    },    /**
      * Records the fact that a xnid has become Hardened. This data will
      * eventually get used to derive each thread's timeSlices array.
      */
-    markXnidHardened(ts, pid, comm, xnid, fromPid, state, info) {
+    markXnidHardened(ts, xnid, state, info) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.hardened_.push({ts, xnid: xnid, 'xnstate': state, 'xninfo': info});
+    },
+    /**
+     * Records the fact that a xnid has become Hardened. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markXnidHardenedLegacy(ts, pid, comm, xnid, fromPid, state, info) {
       // The the pids that get passed in to this function are Linux kernel
       // pids, which identify threads.  The rest of trace-viewer refers to
       // these as tids, so the change of nomenclature happens in the following
@@ -703,14 +803,24 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Records the fact that a xnid has become relaxed. This data will
      * eventually get used to derive each thread's timeSlices array.
      */
-    markXnidRelaxed(ts, pid, comm, xnid, fromPid, state, info) {
+    markXnidRelaxed(ts, xnid, state, info) {
+      // The the pids that get passed in to this function are Linux kernel
+      // pids, which identify threads.  The rest of trace-viewer refers to
+      // these as tids, so the change of nomenclature happens in the following
+      // construction of the wakeup object.
+      this.relaxed_.push({ts, xnid: xnid, 'xnstate': state, 'xninfo': info});
+    },
+    /**
+     * Records the fact that a xnid has become relaxed. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markXnidRelaxedLegacy(ts, pid, comm, xnid, fromPid, state, info) {
       // The the pids that get passed in to this function are Linux kernel
       // pids, which identify threads.  The rest of trace-viewer refers to
       // these as tids, so the change of nomenclature happens in the following
       // construction of the wakeup object.
       this.relaxed_.push({ts, tid: pid, fromTid: fromPid, xnid: xnid, 'xnstate': state, 'xninfo': info});
     },
-
     /**
      * Records the reason why a pid has gone into uninterruptible sleep.
      */
