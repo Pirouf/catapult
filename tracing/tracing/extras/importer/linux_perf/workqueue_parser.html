@@ -42,6 +42,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //  workqueue_execute_end: work struct c7a8a89c
   const workqueueExecuteEndRE = /work struct (.+)/;
 
+  const unknownThreadName = '<...>';
+
   WorkqueueParser.prototype = {
     __proto__: Parser.prototype,
 
@@ -53,9 +55,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const kthread = this.importer.getOrCreateKernelThread(
-          eventBase.threadName, pid, pid);
+            unknownThreadName, "kworkers" , pid);
+
       kthread.openSliceTS = ts;
       kthread.openSlice = event[2];
+
       return true;
     },
 
@@ -64,18 +68,20 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const kthread = this.importer.getOrCreateKernelThread(
-          eventBase.threadName, pid, pid);
+          unknownThreadName, "kworkers" , pid);
+
       if (kthread.openSlice) {
         const slice = new tr.model.CpuSlice('', kthread.openSlice,
             ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
             kthread.openSliceTS,
             {},
             ts - kthread.openSliceTS);
-
         kthread.thread.sliceGroup.pushSlice(slice);
       }
+
       kthread.openSlice = undefined;
       return true;
+
     },
 
     executeQueueWork(eventName, cpuNumber, pid, ts, eventBase) {

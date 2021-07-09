@@ -43,10 +43,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       'prev_comm=(.+) prev_pid=(\\d+) prev_prio=(\\d+) ' +
       'prev_state=(\\S\\+?|\\S\\|\\S|S\|.*) ==> ' +
       'next_comm=(.+) next_pid=(\\d+) next_prio=(\\d+)');
+  TestExports.schedSwitchRE = schedSwitchRE;
 
   // Matches sched_blocked_reason record
   const schedBlockedRE = new RegExp('pid=(\\d+) iowait=(\\d) caller=(.+)');
-  TestExports.schedSwitchRE = schedSwitchRE;
+  TestExports.schedBlockedRE = schedBlockedRE;
 
   // Matches the sched_wakeup record
   // success=? is optional not all kernels report it, so don't include
@@ -58,9 +59,130 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   const unknownThreadName = '<...>';
 
   // Matches the irq/threads sched record
-  const IrqRE =
-      /irq\/(\d+)-(\S+)/;
-  TestExports.IrqRE = IrqRE;
+  const schedSwitch_IrqRE =
+      /irq\/(\d+)-(\S+|\S+-)$/;
+  const schedSwitchIrq = function(comm) {
+    const event = schedSwitch_IrqRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'Interrupts',
+      label: event[2],
+      param: event[1]
+    };
+  };
+  TestExports.schedSwitchIrq = schedSwitchIrq;
+
+  // Matches the irq/threads sched record
+  const schedSwitch_KsoftirqRE =
+      /(ksoftirqd)\/(\d+)/;
+  const schedSwitchKsoftirq = function(comm) {
+    const event = schedSwitch_KsoftirqRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'Interrupts',
+      label: event[1],
+      param: event[2]
+    };
+  };
+  TestExports.schedSwitchKsoftirq = schedSwitchKsoftirq;
+
+  // Matches the kworker/u8:2 sched record
+  const schedSwitch_kworkerRE =
+      /kworker\/(\S+):(\S+)$/;
+  const schedSwitchKworker = function(comm) {
+    const event = schedSwitch_kworkerRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'kworkers',
+      label: event[0],
+      param1: event[1]+'-'+event[2]
+    };
+  };
+  TestExports.schedSwitchKworker = schedSwitchKworker;
+
+  // Matches the migration/0 sched record
+  const schedSwitch_migrateRE =
+      /(migration)\/(\d+)/;
+  const schedSwitchMigrate = function(comm) {
+    const event = schedSwitch_migrateRE.exec(comm);
+    if (!event) return undefined;
+
+    return {
+      tgid: 'Others',
+      label: event[1],
+      param: event[2]
+    };
+  };
+  TestExports.schedSwitchMigrate = schedSwitchMigrate;
+
+  // Matches the swapper/0 sched record
+  const schedSwitch_swapperRE =
+      /(swapper)\/(\d+)/;
+  const schedSwitchSwapper = function(comm) {
+    const event = schedSwitch_swapperRE.exec(comm);
+    return undefined;
+  };
+  TestExports.schedSwitchSwapper = schedSwitchSwapper;
+
+  // Matches the kthreadd sched record
+  const schedSwitch_kthreaddRE =
+      /kthreadd/;
+  const schedSwitchKthreadd = function(comm) {
+    const event = schedSwitch_kthreaddRE.exec(comm);
+    return undefined;
+  };
+  TestExports.schedSwitchKthreadd = schedSwitchKthreadd;
+
+  // Matches the RCU sched record
+  const schedSwitch_rcuRE =
+      /(rcuog|rcuop|rcuc)\/(\d+)/;
+  const schedSwitchRcu = function(comm) {
+    const event = schedSwitch_rcuRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'Others',
+      label: event[1],
+      param: event[2]
+    };
+  };
+  TestExports.schedSwitchRcu = schedSwitchRcu;
+
+  const schedSwitch_rcupreemptRE =
+      /rcu_preempt/;
+  const schedSwitchRcuPreempt = function(comm) {
+    const event = schedSwitch_rcupreemptRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'Others',
+      label: event[0],
+      param: undefined
+    };
+  };
+  TestExports.schedSwitchRcuPreempt = schedSwitchRcuPreempt;
+
+  /**
+   * Deduce the kernel Thread of schedSwitch event. Linux kernels prior to 3.3 used one
+   *
+   * @return {function} the function for parsing data when the format is
+   * recognized; otherwise undefined.
+   */
+  function autoDetectKernelTaskParser(comm) {
+    if (schedSwitch_IrqRE.test(comm)) return schedSwitchIrq;
+    if (schedSwitch_KsoftirqRE.test(comm)) return schedSwitchKsoftirq;
+    if (schedSwitch_kworkerRE.test(comm)) return schedSwitchKworker;
+    if (schedSwitch_kthreaddRE.test(comm)) return schedSwitchKthreadd;
+    if (schedSwitch_migrateRE.test(comm)) return schedSwitchMigrate;
+    if (schedSwitch_rcuRE.test(comm)) return schedSwitchRcu;
+    if (schedSwitch_rcupreemptRE.test(comm)) return schedSwitchRcuPreempt;
+    if (schedSwitch_swapperRE.test(comm)) return schedSwitchSwapper;
+    return undefined;
+  }
+  TestExports.autoDetectKernelTaskParser = autoDetectKernelTaskParser;
 
   SchedParser.prototype = {
     __proto__: Parser.prototype,
@@ -73,31 +195,70 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const prevComm = event[1];
-      const prevPid = event[2];
-      const prevPrio = event[3];      
+      const prevTid = parseInt(event[2]);
+      const prevPrio = parseInt(event[3]);
       const prevState = event[4];
       const nextComm = event[5];
-      const nextPid = parseInt(event[6]);
+      const nextTid = parseInt(event[6]);
       const nextPrio = parseInt(event[7]);
 
-      if (eventBase.tgid !== undefined) {
-        const tgid = parseInt(eventBase.tgid);
-        const process = this.importer.model_.getOrCreateProcess(tgid);
-        const storedThread = process.getThread(pid);
-        if (!storedThread) {
-          const thread = process.getOrCreateThread(pid);
-          thread.name = eventBase.threadName;
-        } else if (storedThread.name === unknownThreadName) {
-          storedThread.name = eventBase.threadName;
-        }
-      }
-
-      const nextThread = this.importer.threadsByLinuxPid[nextPid];
       let nextName;
+
+      nextName = nextComm;
+
+      const nextThread = this.importer.userThreadStates_[nextTid];
       if (nextThread) {
-        nextName = nextThread.userFriendlyName;
+
+        //
+        // UserThread already existing
+        //
+        nextThread.openSliceTS = ts;
+        nextThread.openSlice = nextComm;
+        nextName = nextThread.thread.name;
+
       } else {
-        nextName = nextComm;
+
+        const parseComm = autoDetectKernelTaskParser(nextComm);
+        if ( parseComm ) {
+        //
+        // Kernel Task (Process 0)
+        //
+          const threadSched = parseComm(nextComm);
+          if ( threadSched ) {
+
+            const storedKthread = this.importer.getOrCreateKernelThread(
+                nextComm, threadSched.tgid, nextTid);
+
+            storedKthread.openSliceTS = ts;
+            storedKthread.openSlice = nextComm;
+
+            nextName = storedKthread.thread.name;
+
+            //
+            // Kernel threaded-irq (Process 0)
+            //
+            if ( ( threadSched.tgid === 'Interrupts') &&
+                 ( threadSched.label !== 'ksoftirqd') ) {
+
+              if (!storedKthread.irqName || !storedKthread.irqNum ) {
+                storedKthread.irqName = threadSched.label;
+                storedKthread.irqNum = parseInt(threadSched.param);
+                storedKthread.thread.sortIndex = storedKthread.irqNum;
+                storedKthread.thread.important = false; // auto expend
+                const key = storedKthread.irqNum + "-" + storedKthread.irqName.substring(0,7); 
+                this.importer.threadsByIrqs[key] = this.importer.threadsByIrqs[key] || [];
+                this.importer.threadsByIrqs[key].push(storedKthread);
+              }
+
+            }
+
+            //if ( ( storedKthread.thread.tid ===  nextTid ) &&
+            //     ( storedKthread.thread.name.substring(0,15) !== nextComm ) ) {
+            //    storedKthread.irqName = threadSched.label;
+            //    storedKthread.irqNum = parseInt(threadSched.param);
+            //}
+          }
+        }
       }
 
       this.prevRootSchedState = prevState;
@@ -106,31 +267,158 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       cpu.switchActiveThread(
           ts,
           {stateWhenDescheduled: this.prevRootSchedState },
-          nextPid,
+          nextTid,
           nextName,
           {
-            comm: nextComm,
-            tid: nextPid,
+            comm: nextName,
+            tid: nextTid,
             prio: nextPrio
           });
 
-      let prevTask;
-      if (prevPid) {
-        prevTask = this.importer.getOrCreateUserThread(prevComm + ':' + prevPid, "Linux tasks/threads", prevPid);
+      const prevThread = this.importer.userThreadStates_[prevTid];
+      if (prevThread) {
 
-        if (prevTask.openSlice) {
-          prevTask.openSliceDuration = ts - prevTask.openSliceTS;
+        //
+        // User Thread already existing
+        //
+
+        if ( ( prevThread.name === unknownThreadName ) ||
+             ( prevThread.name !== prevComm ) ) {
+          prevThread.name = prevComm;
+          prevThread.thread.name = prevComm;
+          prevThread.thread.userFriendlyName = prevComm;
+
         }
-        prevTask.openSlice = undefined;
-      }
 
-      let nextTask;      
-      if (nextPid) {
-        const name = nextComm + ':' + nextPid
-        nextTask = this.importer.getOrCreateUserThread(name, "Linux tasks/threads", nextPid);
+        let tgid;
+        if (eventBase.tgid !== undefined) {
+          tgid = parseInt(eventBase.tgid);
+        } else {
+          tgid = prevTid;
+        }
 
-        nextTask.openSliceTS = ts;
-        nextTask.openSlice = nextName;
+        if ( ( tgid  === prevThread.thread.parent.pid ) &&
+             ( prevThread.name !==  prevThread.thread.parent.name ) ) {
+            prevThread.thread.parent.name = prevComm;
+        }
+
+        if (prevThread.openSlice) {
+          prevThread.openSliceDuration = ts - prevThread.openSliceTS;
+        }
+
+        prevThread.openSlice = undefined;
+
+      } else {
+        //
+        // New User or Kernel Thread
+        //
+        const parseComm = autoDetectKernelTaskParser(prevComm);
+        if ( parseComm ) {
+          //
+          // Kernel Threads (Process 0)
+          //
+          const threadSched = parseComm(prevComm);
+          if ( !threadSched )  return false;
+
+          const storedKthread = this.importer.getOrCreateKernelThread(
+              prevComm, threadSched.tgid, prevTid);
+
+          if (storedKthread.openSlice) {
+            storedKthread.openSliceDuration = ts - storedKthread.openSliceTS;
+          }
+
+          storedKthread.openSlice = undefined;
+
+          //
+          // Kernel threaded-irq (Process 0)
+          //
+          if ( ( threadSched.tgid === 'Interrupts') &&
+               ( threadSched.label !== 'ksoftirqd') ) {
+
+            if (!storedKthread.irqName || !storedKthread.irqNum ) {
+              storedKthread.irqName = threadSched.label;
+              storedKthread.irqNum = parseInt(threadSched.param);
+              storedKthread.thread.sortIndex = storedKthread.irqNum;
+              storedKthread.thread.important = false; // auto expend
+              const key = storedKthread.irqNum + "-" + storedKthread.irqName.substring(0,7);
+              this.importer.threadsByIrqs[key] = this.importer.threadsByIrqs[key] || [];
+              this.importer.threadsByIrqs[key].push(storedKthread);
+            }
+
+            if ( storedKthread.irqEntryTs && storedKthread.irqExitTs ) {
+
+              const topDuration = storedKthread.irqExitTs - storedKthread.irqEntryTs;
+              const bottomDuration = ts - storedKthread.irqExitTs;
+
+              // AsyncSlice's to show when the top and bottom half:
+              const top = new tr.model.AsyncSlice('', storedKthread.irqName + ' top-half',
+                  tr.b.ColorScheme.getColorIdForReservedName('black'),
+                  storedKthread.irqEntryTs,
+                  {
+                    irq: storedKthread.irqNum,
+                    name: storedKthread.irqName
+                  },
+                  topDuration);
+
+              const bottom = new tr.model.AsyncSlice('', storedKthread.irqName + ' bottom-half',
+                  tr.b.ColorScheme.getColorIdForReservedName('grey'),
+                  storedKthread.irqEntryTs + topDuration,
+                  {
+                    irq: storedKthread.irqNum,
+                    name: storedKthread.irqName
+                  },
+                  bottomDuration);
+
+              const async = new tr.model.AsyncSlice('', '',
+                  ColorScheme.getColorIdForGeneralPurposeString(''),
+                  storedKthread.irqEntryTs,
+                  {
+                    irq: storedKthread.irqNum,
+                    name: storedKthread.irqName
+                  },
+                  topDuration + bottomDuration);
+
+              // We don't want the 'async' container slice visible, it just exists to
+              // group the 'queued' and 'running' subslices:
+              async.hidden = true;
+
+              async.subSlices.push(top);
+              async.subSlices.push(bottom);
+              storedKthread.thread.asyncSliceGroup.push(async);
+
+            }
+          }
+          storedKthread.irqEntryTs = undefined;
+          storedKthread.irqExitTs = undefined;
+        } else {
+
+          //
+          // User Threads
+          //
+
+          let tgid;
+
+          if (eventBase.tgid !== undefined) {
+            tgid = parseInt(eventBase.tgid);
+          } else {
+            tgid = prevTid;
+          }
+
+          const storedThread = this.importer.getOrCreateUserThread(
+              prevComm, tgid , prevTid);
+
+          if ( ( storedThread.name === unknownThreadName ) ||
+               ( storedThread.name !== prevComm ) ) {
+            storedThread.name = prevComm;
+            storedThread.thread.name = prevComm;
+            storedThread.thread.userFriendlyName = prevComm;
+          }
+
+          if (storedThread.openSlice) {
+            storedThread.openSliceDuration = ts - storedThread.openSliceTS;
+          }
+          storedThread.openSlice = undefined;
+        }
       }
 
       return true;
@@ -184,7 +472,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     getPseudoProcess: function() {
       if (this.process == undefined) {
-        this.process = this.importer.model_.getOrCreatePseudoProcess("Linux tasks/threads");
+        this.process = this.importer.model_.getOrCreatePseudoProcess(0);
       }
       return this.process;
     }
