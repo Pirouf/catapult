@@ -162,7 +162,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      */
     xnSchedSwitchEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnschedSwitchRE.exec(eventBase.details);
-      if (!event) return xnSchedSwitchEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      if (!event) return this.xnSchedSwitchEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const prevComm = event[1];
       const prevXnid = parseInt(event[2]);
@@ -274,9 +274,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const event = xnSchedSyncWakeupRE.exec(eventBase.details);
       if (!event) return false;
 
-      const xnsyncid = event[1];
+      const fromPid = pid;
+      const xnsync = event[1];
+      this.prevHeadSchedState = 'S';
 
-      this.importer.markXnSyncPt(ts, xnsyncid, cpuNumber, pid);
+      this.importer.markXnSyncWake(ts, xnsync, cpuNumber, fromPid);
       return true;
     },
 

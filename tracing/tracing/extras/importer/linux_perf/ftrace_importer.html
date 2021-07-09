@@ -88,11 +88,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.userThreadStates_ = {};    
     this.buildMapFromLinuxPidsToThreads_();
     this.lines_ = [];
-    this.pseudoThreadCounter = 1;
+    this.pseudoThreadCounter = -1;
     this.parsers_ = [];
     this.eventHandlers_ = {};
     this.haveClockSyncedMonotonicToGlobal_ = false;
     this.clockDomainId_ = tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL;
+    const KernelModelHelper = tr.model.helpers.KernelModelHelper;
 
     this.prevHeadSchedState = "-";
     this.prevRootSchedState = "-";
@@ -278,7 +279,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   // Some kernel trace events are manually classified in slices and
   // hand-assigned a pseudo PID.
-  const pseudoKernelPID = 0;
+  const pseudoKernelPID = 'Others';
 
   /**
    * Deduce the format of trace data. Linux kernels prior to 3.3 used one
@@ -503,19 +504,33 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * @return {TimelineThread} A thread corresponding to the kernelThreadName.
      */
     getOrCreateKernelThread(kernelThreadName, pid, tid) {
-      if (!this.kernelThreadStates_[kernelThreadName]) {
+      const key = parseInt(tid);
+      if (!this.kernelThreadStates_[key]) {
         const thread = this.model_.getOrCreateProcess(pid).getOrCreateThread(
             tid);
         thread.name = kernelThreadName;
-        this.kernelThreadStates_[kernelThreadName] = {
+
+        if ( !thread.parent.name ) {
+          const process = thread.parent;
+          process.pid = 0;
+          process.name = 'Kernel ['+ pid +']';
+          process.userFriendlyName = 'Kernel ['+ pid +']';
+          process.userFriendlyDetails = 'Kernel ['+ pid +']';
+          process.sortIndex = Number.NEGATIVE_INFINITY;
+          process.important = true; // auto expend
+        }
+
+        this.kernelThreadStates_[key] = {
           pid,
           thread,
           openSlice: undefined,
-          openSliceTS: undefined
+          openSliceTS: undefined,
+          irqName: undefined,
+          irqNum: undefined
         };
         this.threadsByLinuxPid[tid] = thread;
       }
-      return this.kernelThreadStates_[kernelThreadName];
+      return this.kernelThreadStates_[key];
     },
 
     /**
@@ -524,18 +539,26 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * keep more information in order to return the correct threads.
      */
     getOrCreateUserThread(userThreadName, pid, tid) {
-      const key = userThreadName + pid + tid;
+      const key = parseInt(tid);
       if (!this.userThreadStates_[key]) {
-        const thread = this.model_.getOrCreatePseudoProcess("Linux tasks/threads").getOrCreateThread(
-            tid);
+        const thread = this.model_.getOrCreateProcess(parseInt(pid)).getOrCreateThread(
+            parseInt(tid));
         thread.name = userThreadName;
+
+        if ( !thread.parent.name) {
+          const process = thread.parent;
+          process.name = userThreadName ;
+          process.userFriendlyName = userThreadName ;
+          process.sortIndex = parseInt(pid);
+          process.important = false; // auto collapse
+        }
         this.userThreadStates_[key] = {
-          pid,
+          key,
           thread,
           openSlice: undefined,
           openSliceTS: undefined
         };
-        this.threadsByLinuxPid[pid] = thread;
+        this.threadsByLinuxPid[parseInt(tid)] = thread;
       }
       return this.userThreadStates_[key];
     },
@@ -601,7 +624,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!thread) {
         thread = this.getOrCreateKernelThread(threadName, pseudoKernelPID,
             this.pseudoThreadCounter);
-        this.pseudoThreadCounter++;
+        this.pseudoThreadCounter--;
       }
       return thread;
     },
@@ -617,8 +640,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       let thread = this.xnThreadStates_[xnid];
       if (!thread) {
         thread = this.getOrCreateXnThread(threadName, pid,
-            9000+this.pseudoThreadCounter,xnid);
-        this.pseudoThreadCounter++;
+            -100+this.pseudoThreadCounter,xnid);
+        this.pseudoThreadCounter--;
       }
       return thread;
     },
@@ -841,6 +864,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      */
     buildMapFromLinuxPidsToThreads_() {
       this.threadsByLinuxPid = {};
+      this.threadsByIrqs = {};
       this.threadsByXnid = {};
       this.threadsByXnSyncid = {};
       this.model_.getAllThreads().forEach(

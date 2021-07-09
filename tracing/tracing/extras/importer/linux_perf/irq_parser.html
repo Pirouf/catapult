@@ -80,10 +80,23 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const irq = parseInt(event[1]);
       const name = event[2];
 
-      const thread = this.importer.getOrCreatePseudoThread(
-          'irqs cpu ' + cpuNumber);
+      const thread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
       thread.lastEntryTs = ts;
       thread.irqName = name;
+
+      const irqThreads_ = this.importer.threadsByIrqs[irq +'-'+ thread.irqName.substring(0,7)];
+      for (const i in irqThreads_) {
+
+        if ( ( name !==  irqThreads_[i].irqName) &&
+             ( name.substring(0,7)  ===  irqThreads_[i].irqName ) &&
+             ( irq === irqThreads_[i].irqNum ) ) {
+          irqThreads_[i].irqName = name;
+          irqThreads_[i].thread.name = 'irq/'+ irq +'-'+ thread.irqName;
+        }
+
+        irqThreads_[i].irqEntryTs = ts;
+      }
 
       return true;
     },
@@ -94,21 +107,33 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const irq = parseInt(event[1]);
       const ret = event[2];
-      const thread = this.importer.getOrCreatePseudoThread(
-          'irqs cpu ' + cpuNumber);
+      const thread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
+
         const slice = new tr.model.CpuSlice(
             '',
-            'IRQ (' + thread.irqName + ')',
+            'IRQ (' + irq +'-'+ thread.irqName + ')',
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
             thread.lastEntryTs, { ret },
             duration);
         thread.thread.sliceGroup.pushSlice(slice);
+
       }
-      thread.lastEntryTs = undefined;
-      thread.irqName = undefined;
+
+      if (thread.irqName !== undefined) {
+        const irqThreads_ = this.importer.threadsByIrqs[irq +'-'+ thread.irqName.substring(0,7)];
+        for (const i in irqThreads_) {
+
+          irqThreads_[i].irqExitTs = ts;
+        }
+
+        thread.lastEntryTs = undefined;
+        thread.irqName = undefined;
+      }
+
       return true;
     },
 
@@ -121,9 +146,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const action = event[2];
-      const thread = this.importer.getOrCreatePseudoThread(
-          'softirq cpu ' + cpuNumber);
-      thread.lastEntryTs = ts;
+
+      const storedThread = this.importer.threadsByLinuxPid[pid];
+      if (!storedThread) return false;
+
+      const kthread = this.importer.kernelThreadStates_[storedThread.name];
+      if (!kthread) return false;
+
+      kthread.lastEntryTs = ts;
 
       return true;
     },
@@ -132,29 +162,34 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const event = softirqRE.exec(eventBase.details);
       if (!event) return false;
 
+      const storedThread = this.importer.threadsByLinuxPid[pid];
+      if (!storedThread) return false;
+
+      const kthread = this.importer.kernelThreadStates_[storedThread.name];
+      if (!kthread) return false;
+
       const vec = parseInt(event[1]);
       const action = event[2];
-      const thread = this.importer.getOrCreatePseudoThread(
-          'softirq cpu ' + cpuNumber);
 
-      if (thread.lastEntryTs !== undefined) {
-        const duration = ts - thread.lastEntryTs;
+      if (kthread.lastEntryTs !== undefined) {
+        const duration = ts - kthread.lastEntryTs;
         const slice = new tr.model.CpuSlice(
             '', action,
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
-            thread.lastEntryTs, { vec },
+            kthread.lastEntryTs, { vec },
             duration);
-        thread.thread.sliceGroup.pushSlice(slice);
+        kthread.thread.sliceGroup.pushSlice(slice);
       }
-      thread.lastEntryTs = undefined;
+
+      kthread.lastEntryTs = undefined;
       return true;
     },
     /**
      * Parses ipi events and sets up state in the mporter.
      */
     ipiEntryEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const thread = this.importer.getOrCreatePseudoThread(
-          'irqs cpu ' + cpuNumber);
+      const thread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0);
       thread.lastEntryTs = ts;
 
       return true;
@@ -165,8 +200,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return false;
 
       const ipiName = event[1];
-      const thread = this.importer.getOrCreatePseudoThread(
-          'irqs cpu ' + cpuNumber);
+      const thread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0);
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
