@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses SPI driver events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses linux SPI trace events.
+   * @constructor
+   */
+  function SpiParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('spi_transfer_start',
+        SpiParser.prototype.spiTransferStartEvent.bind(this));
+    importer.registerEventHandler('spi_transfer_stop',
+        SpiParser.prototype.spiTransferStopEvent.bind(this));
+    importer.registerEventHandler('spi_message_start',
+        SpiParser.prototype.spiMessageStartEvent.bind(this));
+    importer.registerEventHandler('spi_message_done',
+        SpiParser.prototype.spiMessageDoneEvent.bind(this));
+    importer.registerEventHandler('spi_message_submit',
+        SpiParser.prototype.spiMessageSubmitEvent.bind(this));
+    importer.registerEventHandler('spi_controller_busy',
+        SpiParser.prototype.spiControllerBusyEvent.bind(this));
+    importer.registerEventHandler('spi_controller_idle',
+        SpiParser.prototype.spiControllerIdleEvent.bind(this));
+  }
+
+  // Matches the spidev_test-2597    (   2597) [000] ....... 19605.179424: spi_message_start: spi0.0 0000000055e66b17
+  const spiMessageStartRE = new RegExp('spi(\\d+)\\.(\\d+) ([\\da-fA-F]+)');
+  // Matches the spidev_test-2597    (   2597) [000] .....11 19605.179423: spi_message_submit: spi0.0 0000000055e66b17
+  const spiMessageSubmitRE = new RegExp('spi(\\d+)\\.(\\d+) ([\\da-fA-F]+)');
+  // Matches the spidev_test-2597    (   2597) [002] ....... 19605.179509: spi_message_done: spi0.0 0000000055e66b17 len=32/32
+  const spiMessageDoneRE = new RegExp('spi(\\d+)\\.(\\d+) ([\\da-fA-F]+) len=(\\d+)\\/(\\d+)');
+
+  // Matches the spidev_test-2597    (   2597) [000] ....... 19605.179430: spi_transfer_start: spi0.0 000000008c7c2c35 len=32 tx=[31-31-32-32-33-33-34-34-35-35-36-36-37-37-38-38-31-31-32-32-33-33-34-34-35-35-36-36-37-37-38-38] rx=[00-70-a0-cb-8b-89-ff-ff-73-6c-69-63-65-2f-73-79-73-74-65-6d-64-2d-6a-6f-75-72-6e-61-6c-64-2e-73]
+  const spiTransferStartStopRE = new RegExp(
+      'spi(\\d+)\\.(\\d+) ([\\da-fA-F]+) len=(\\d+)' +
+      ' tx=(\\[[\\da-fA-F\\-]+\\])' +
+      ' rx=(\\[[\\da-fA-F\\-]+\\])');
+
+  // Matches the spi0-232     (    232) [000] ....... 19605.179515: spi_controller_idle: spi0
+  const spiControllerIdleRE = /spi(\d+)/;
+  // Matches the spidev_test-2597    (   2597) [000] ....... 19605.179424: spi_controller_busy: spi0
+  const spiControllerBusyRE = /spi(\d+)/;
+
+  SpiParser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses SPI events and sets up state in the importer.
+     */
+    spiMessageSubmitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiMessageSubmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const busNumber = parseInt(event[2]);
+      const messageNumber = event[3];
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      pushLastSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastMsgEntryTitle = 'spi'+ adapterNumber +'-bus'+ busNumber +' msg';
+      thread.lastMsgEntryTs = ts;
+      thread.lastMsgEntryArgs = {
+        'Bus number': busNumber,
+        'Message number': messageNumber
+      };
+
+      return true;
+    },
+
+    spiMessageStartEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiMessageStartRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const busNumber = parseInt(event[2]);
+      const messageNumber = event[3];
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      const args = thread.lastMsgEntryArgs;
+      if (args !== undefined) {
+        args['Bus number'] = busNumber;
+        args['Message number'] = messageNumber;
+      }
+
+      return true;
+    },
+
+    /**
+     * Parses SPI events and sets up state in the importer.
+     */
+    spiMessageDoneEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiMessageSubmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const busNumber = parseInt(event[2]);
+      const messageNumber = event[3];
+      const rxlen = event[4] ;
+      const txlen = event[5] ;
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      const args = thread.lastMsgEntryArgs;
+      if (args !== undefined) {
+        args['Bus number'] = busNumber;
+        args['Message number'] = messageNumber;
+      }
+
+      pushLastSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastMsgEntryTitle = undefined;
+      thread.lastMsgEntryTs = undefined;
+      thread.lastMsgEntryArgs = undefined;
+
+      return true;
+    },
+
+    /**
+     * Parses SPI events and sets up state in the importer.
+     */
+    spiTransferStartEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiTransferStartStopRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const busNumber = parseInt(event[2]);
+      const address = event[3];
+      const dataLength = event[4];
+      const datatx = event[5];
+      const datarx = event[6];
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      pushLastXferSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastXferEntryTitle = 'spi-xfer';
+      thread.lastXferEntryTs = ts;
+      thread.lastXferEntryArgs = {
+        'Bus number': busNumber,
+        'Address': address,
+        'Data Length': dataLength,
+        'Tx': datatx,
+        'Rx': datarx
+      };
+
+      return true;
+    },
+
+    spiTransferStopEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiTransferStartStopRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const busNumber = parseInt(event[2]);
+      const address = event[3];
+      const dataLength = event[4];
+      const datatx = event[5];
+      const datarx = event[6];
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      const args = thread.lastXferEntryArgs;
+      if (args !== undefined) {
+        args['Tx'] = datatx;
+        args['Rx'] = datarx;
+      }
+
+      pushLastXferSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastXferEntryTitle = undefined;
+      thread.lastXferEntryTs = undefined;
+      thread.lastXferEntryArgs = undefined;
+
+      return true;
+    },
+
+    spiControllerBusyEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiControllerBusyRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      pushLastAsyncSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastCtrlEntryTitle = 'spi' + adapterNumber + '-busy';
+      thread.lastCtrlEntryTs = ts;
+      thread.lastCtrlEntryArgs = {};
+
+      return true;
+    },
+
+    spiControllerIdleEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = spiControllerIdleRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const adapterNumber = parseInt(event[1]);
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          'spi' + adapterNumber, '/dev spi adapters');
+
+      pushLastAsyncSliceIfNeeded(thread, event[1], ts);
+
+      thread.lastCtrlEntryTitle = undefined;
+      thread.lastCtrlEntryTs = undefined;
+      thread.lastCtrlEntryArgs = undefined;
+
+      return true;
+    },
+  };
+
+  function pushLastSliceIfNeeded(thread, id, currentTs) {
+    if (thread.lastMsgEntryTs !== undefined) {
+      const duration = currentTs - thread.lastMsgEntryTs;
+      const slice = new tr.model.ThreadSlice(
+          '', thread.lastMsgEntryTitle,
+          ColorScheme.getColorIdForGeneralPurposeString(id),
+          thread.lastMsgEntryTs, thread.lastMsgEntryArgs, duration);
+      thread.thread.important = false; // no auto expend
+      thread.thread.sliceGroup.pushSlice(slice);
+    }
+  }
+  function pushLastXferSliceIfNeeded(thread, id, currentTs) {
+    if (thread.lastXferEntryTs !== undefined) {
+      const duration = currentTs - thread.lastXferEntryTs;
+      const slice = new tr.model.ThreadSlice(
+          '', thread.lastXferEntryTitle,
+          ColorScheme.getColorIdForGeneralPurposeString(id),
+          thread.lastXferEntryTs, thread.lastXferEntryArgs, duration);
+      thread.thread.important = false; // no auto expend
+      thread.thread.sliceGroup.pushSlice(slice);
+    }
+  }
+
+  function pushLastAsyncSliceIfNeeded(thread, id, currentTs) {
+    if (thread.lastCtrlEntryTs !== undefined) {
+      const duration = currentTs - thread.lastCtrlEntryTs;
+      const asyncSliceConstructor =
+         tr.model.AsyncSlice.subTypes.getConstructor(
+          '', '');
+      const slice = new asyncSliceConstructor(
+          '', thread.lastCtrlEntryTitle,
+          ColorScheme.getColorIdForGeneralPurposeString(id),
+          thread.lastCtrlEntryTs, thread.lastCtrlEntryArgs, duration);
+      thread.thread.important = false; // no auto expend
+      thread.thread.asyncSliceGroup.push(slice);
+    }
+  }
+
+  Parser.register(SpiParser);
+
+  return {
+    SpiParser,
+  };
+});
+
+</script>
