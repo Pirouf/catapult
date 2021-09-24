@@ -165,6 +165,21 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   };
   TestExports.schedSwitchRcuPreempt = schedSwitchRcuPreempt;
 
+  // Matches the spi/threads sched record
+  const schedSwitch_SpiRE =
+      /spi(\d+)$/;
+  const schedSwitchSpi = function(comm) {
+    const event = schedSwitch_SpiRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: '/dev spi adapters',
+      label: undefined,
+      param: undefined
+    };
+  };
+  TestExports.schedSwitchSpi = schedSwitchSpi;
+
   /**
    * Deduce the kernel Thread of schedSwitch event. Linux kernels prior to 3.3 used one
    *
@@ -179,6 +194,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (schedSwitch_migrateRE.test(comm)) return schedSwitchMigrate;
     if (schedSwitch_rcuRE.test(comm)) return schedSwitchRcu;
     if (schedSwitch_rcupreemptRE.test(comm)) return schedSwitchRcuPreempt;
+    if (schedSwitch_SpiRE.test(comm)) return schedSwitchSpi;
     if (schedSwitch_swapperRE.test(comm)) return schedSwitchSwapper;
     return undefined;
   }
