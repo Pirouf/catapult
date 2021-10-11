@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<!--
+###############################################################################
+#
+# Copyright (c) 2020-2022, Intel Corporation
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#  1. Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#  3. Neither the name of the copyright holder nor the names of its
+#     contributors may be used to endorse or promote products derived from
+#     this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+###############################################################################
+-->
+
+<link rel="import" href="/tracing/model/process_base.html">
+<link rel="import" href="/tracing/model/process_memory_dump.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Provides the Ethernet class.
+ */
+tr.exportTo('tr.model', function() {
+  const ProcessBase = tr.model.ProcessBase;
+  const ProcessInstantEvent = tr.model.ProcessInstantEvent;
+
+  /**
+   * The Eth represents a single Ethernet device in the
+   * trace.
+   * @constructor
+   */
+  function Ethernet(model, eid) {
+    if (model === undefined) {
+      throw new Error('model must be provided');
+    }
+    if (eid === undefined) {
+      throw new Error('ethernet device id must be provided');
+    }
+    tr.model.ProcessBase.call(this, model);
+    this.eid = eid;
+    this.labels = [];
+    this.uptime_seconds = 0;
+    this.instantEvents = [];
+    this.memoryDumps = [];
+    this.frames = [];
+    this.activities = [];
+  }
+
+  /**
+   * Comparison between processes that orders by pid.
+   */
+  Ethernet.compare = function(x, y) {
+    let tmp = tr.model.ProcessBase.compare(x, y);
+    if (tmp) return tmp;
+
+    if (x.eid !== undefined) {
+      if (y.eid !== undefined) {
+        tmp = x.eid.localeCompare(y.eid);
+      } else {
+        tmp = -1;
+      }
+    } else if (y.eid !== undefined) {
+      tmp = 1;
+    }
+    if (tmp) return tmp;
+
+    tmp = tr.b.compareArrays(x.labels, y.labels,
+        function(x, y) { return x.localeCompare(y); });
+    if (tmp) return tmp;
+
+    return x.eid - y.eid;
+  };
+
+  Ethernet.prototype = {
+    __proto__: tr.model.ProcessBase.prototype,
+
+    get stableId() {
+      return this.eid;
+    },
+
+    compareTo(that) {
+      return Ethernet.compare(this, that);
+    },
+
+    * childEvents() {
+      yield* ProcessBase.prototype.childEvents.call(this);
+      yield* this.instantEvents;
+      yield* this.frames;
+      yield* this.memoryDumps;
+    },
+
+    addLabelIfNeeded(labelName) {
+      for (let i = 0; i < this.labels.length; i++) {
+        if (this.labels[i] === labelName) return;
+      }
+      this.labels.push(labelName);
+    },
+
+    get userFriendlyName() {
+      let res;
+      res = '[Kernel /dev/' + this.eid + ']';
+      if (this.labels.length) {
+        res += ': ' + this.labels.join(', ');
+      }
+      if (this.uptime_seconds) {
+        res += ', uptime:' + this.uptime_seconds + 's';
+      }
+      return res;
+    },
+
+    get userFriendlyDetails() {
+      return '[Kernel /dev/' + this.eid + ']';
+    },
+
+    getSettingsKey() {
+      if (!this.labels.length) return 'eth.' + this.eid;
+      return 'eth.' + this.eid + '.' + this.labels.join('.');
+    },
+
+    shiftTimestampsForward(amount) {
+      for (let i = 0; i < this.instantEvents.length; i++) {
+        this.instantEvents[i].start += amount;
+      }
+
+      tr.model.ProcessBase.prototype
+          .shiftTimestampsForward.apply(this, arguments);
+    },
+
+    updateBounds() {
+      tr.model.ProcessBase.prototype.updateBounds.apply(this);
+
+      for (let i = 0; i < this.frames.length; i++) {
+        this.frames[i].addBoundsToRange(this.bounds);
+      }
+
+      for (let i = 0; i < this.memoryDumps.length; i++) {
+        this.memoryDumps[i].addBoundsToRange(this.bounds);
+      }
+
+      for (let i = 0; i < this.activities.length; i++) {
+        this.activities[i].addBoundsToRange(this.bounds);
+      }
+    },
+
+  };
+
+  return {
+    Ethernet,
+  };
+});
+</script>

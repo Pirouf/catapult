@@ -180,6 +180,21 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   };
   TestExports.schedSwitchSpi = schedSwitchSpi;
 
+  // Matches the ktimersoftd sched record
+  const schedSwitch_ktimersoftRE =
+      /ktimersoftd\/(\d+)$/;
+  const schedSwitchKtimersoft = function(comm) {
+    const event = schedSwitch_ktimersoftRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'ktimersoftd',
+      label: event[0],
+      param: event[1]
+    };
+  };
+  TestExports.schedSwitchKtimersoft = schedSwitchKtimersoft;
+
   /**
    * Deduce the kernel Thread of schedSwitch event. Linux kernels prior to 3.3 used one
    *
@@ -196,7 +211,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (schedSwitch_rcupreemptRE.test(comm)) return schedSwitchRcuPreempt;
     if (schedSwitch_SpiRE.test(comm)) return schedSwitchSpi;
     if (schedSwitch_swapperRE.test(comm)) return schedSwitchSwapper;
-    return undefined;
+    if (schedSwitch_ktimersoftRE.test(comm)) return schedSwitchKtimersoft;
+  return undefined;
   }
   TestExports.autoDetectKernelTaskParser = autoDetectKernelTaskParser;
 
@@ -334,7 +350,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           // Kernel Threads (Process 0)
           //
           const threadSched = parseComm(prevComm);
-          if ( !threadSched )  return false;
+          if ( !threadSched )  return true;
 
           const storedKthread = this.importer.getOrCreateKernelThread(
               prevComm, threadSched.tgid, prevTid);

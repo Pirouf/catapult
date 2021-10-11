@@ -39,6 +39,8 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/linux_perf/thermal_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/wakeup_source_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/workqueue_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/net_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/qdisc_parser.html">
 <link rel="import" href="/tracing/importer/importer.html">
 <link rel="import" href="/tracing/importer/simple_line_reader.html">
 <link rel="import" href="/tracing/model/clock_sync_manager.html">
@@ -63,6 +65,8 @@ found in the LICENSE file.
 tr.exportTo('tr.e.importer.linux_perf', function() {
   const MONOTONIC_TO_FTRACE_GLOBAL_SYNC_ID =
       'linux_clock_monotonic_to_ftrace_global';
+  const PTP_TO_FTRACE_GLOBAL_SYNC_ID =
+      'linux_clock_ptp_to_ftrace_global';
   const ColorScheme = tr.b.ColorScheme;      
 
   const IMPORT_PRIORITY = 2;
@@ -83,16 +87,25 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.hardened_ = [];
     this.relaxed_ = [];
     this.wakeups_ = [];
+    this.netqueues_ = [];
+    this.netxmits_ = [];
+    this.nettimeouts_ = [];
+    this.netrecvs_ = [];
+    this.netirqs_ = [];
+    this.netrxirqs_ = {};
+    this.nettxirqs_ = [];
     this.blockedReasons_ = [];
     this.kernelThreadStates_ = {};
     this.xnThreadStates_ = {};
-    this.userThreadStates_ = {};    
+    this.userThreadStates_ = {};
     this.buildMapFromLinuxPidsToThreads_();
+    this.threadsByIrqs = {};
     this.lines_ = [];
     this.pseudoThreadCounter = -1;
     this.parsers_ = [];
     this.eventHandlers_ = {};
     this.haveClockSyncedMonotonicToGlobal_ = false;
+    this.haveClockSyncedPtpToGlobal_ = false;
     this.clockDomainId_ = tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL;
     const KernelModelHelper = tr.model.helpers.KernelModelHelper;
 
@@ -275,6 +288,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   const traceEventClockSyncRE = /trace_event_clock_sync: parent_ts=(\d+\.?\d*)/;
   TestExports.traceEventClockSyncRE = traceEventClockSyncRE;
 
+  // Matches the trace_event_clock_sync marker:
+  // 0: trace_event_clock_sync: parent_ts=1525853974.18952 seq=64884 tai_lat=15850 ep=enp1s0
+  const traceEventPtpClockSyncRE = /trace_event_clock_sync: parent_ts=(\d+)\.(\d+) seq=(\d+) tai_lat=(\d+) ep=(\S+)/;
+  TestExports.traceEventPtpClockSyncRE = traceEventPtpClockSyncRE;
+
   const realTimeClockSyncRE = /trace_event_clock_sync: realtime_ts=(\d+)/;
   const genericClockSyncRE = /trace_event_clock_sync: name=([\w\-]+)/;
 
@@ -455,7 +473,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         const eventName = eventBase.eventName;
         if (eventName !== 'tracing_mark_write' && eventName !== '0') return;
 
-        if (traceEventClockSyncRE.exec(eventBase.details) ||
+        if (traceEventPtpClockSyncRE.exec(eventBase.details)) {
+          this.traceClockPtpSyncEvent_(eventName, cpuNumber, pid, ts, eventBase);
+        } else if (traceEventClockSyncRE.exec(eventBase.details) ||
             genericClockSyncRE.exec(eventBase.details)) {
           this.traceClockSyncEvent_(eventName, cpuNumber, pid, ts, eventBase);
         } else if (realTimeClockSyncRE.exec(eventBase.details)) {
@@ -484,6 +504,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       this.importCpuData_(modelTimeTransformer);
       this.buildMapFromLinuxPidsToThreads_();
       this.buildPerThreadCpuSlicesFromCpuState_();
+      this.buildPerThreadNetSlicesFromEthScope_();
     },
 
     /**
@@ -621,10 +642,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * unique (incrementing) TID.
      */
     getOrCreatePseudoDeviceThread(kernelThreadName, pid) {
-      const key = kernelThreadName;
+      const key = kernelThreadName+pid;
       if (!this.kernelThreadStates_[key]) {
         const tid = this.pseudoThreadCounter;
-        const thread = this.model_.getOrCreateProcess(pid).getOrCreateThread(
+        const thread = this.model_.getOrCreatePseudoProcess(pid).getOrCreateThread(
             tid);
         thread.name = kernelThreadName;
         this.kernelThreadStates_[key] = {
@@ -904,7 +925,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      */
     buildMapFromLinuxPidsToThreads_() {
       this.threadsByLinuxPid = {};
-      this.threadsByIrqs = {};
       this.threadsByXnid = {};
       this.threadsByXnSyncid = {};
       this.model_.getAllThreads().forEach(
@@ -1674,6 +1694,1044 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     /**
+     * Records the fact that a net packet has become queue. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetQueued(ts, adapter, key, pid) {
+      this.netqueues_.push({ts, tid: pid, 'adapter': adapter, 'key': key});
+    },
+
+    /**
+     * Records the fact that a net xmit packet has become done. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetXmit(ts, adapter, key, pid ) {
+      this.netxmits_.push({ts, tid: pid, 'adapter': adapter, 'key': key});
+    },
+
+    /**
+     * Records the fact that a net xmit packet has become timeout. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetTimeout(ts, adapter, queuenum, pid ) {
+      this.nettimeouts_.push({ts, tid: pid, 'adapter': adapter, 'queue': queuenum });
+    },
+
+    /**
+     * Records the fact that a net rx packet has become rx_exit. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetRecv(ts, adapter, queuenum, key, pid) {
+      this.netrecvs_.push({ts, tid: pid, 'adapter': adapter, 'queue': queuenum, 'key': key});
+    },
+
+    /**
+     * Records the fact that a net irq has become scheduled. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetTxIrq(ts, cpunum, pid, duration) {
+      this.nettxirqs_.push({ts, tid: pid, 'cpu': cpunum, 'duration': duration});
+    },
+
+    /**
+     * Records the fact that a net irq has become scheduled. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetRxIrq(ts, cpunum, pid, duration) {
+      this.netrxirqs_[pid] = this.netrxirqs_[pid] || [];
+      this.netrxirqs_[pid].push({ts, tid: pid, 'cpu': cpunum, 'duration': duration});
+    },
+
+    /**
+     * Records the fact that a net irq has become scheduled. This data will
+     * eventually get used to derive each thread's timeSlices array.
+     */
+    markNetIrq(ts, cpunum, pid, duration, adapter, queuenum, irq) {
+      this.netirqs_.push({ts, tid: pid, 'cpu': cpunum, 'duration': duration, 'adapter': adapter, 'queue': queuenum, 'key': irq, });
+    },
+
+    /**
+     * Builds the timeSlices array on each thread based on our knowledge of what
+     * each Network devices are doing.  This is done only for Threads that are
+     * already in the model, on the assumption that not having any traced data
+     * on a thread means that it is not of interest to the user.
+     */
+
+    buildPerThreadNetSlicesFromEthScope_() {
+      const NETWORKING_STATE = tr.e.net.NETWORKING_STATE;
+      const ethIrqHandlerRE = tr.e.net.ethIrqHandlerRE;
+      const vnetIrqHandlerRE = tr.e.net.vnetIrqHandlerRE;
+
+      // Push the Objects snapshots to the threads that opened the AF_SOCKET.
+      for (const ethName of Object.keys(this.model_.netdevs)) {
+        const instances = this.model_.netdevs[ethName].objects.getAllObjectInstances();
+
+        for (let i = 0; i < instances.length; i++) {
+          const snapshots = instances[i].snapshots;
+
+          for (let j = 0; j < snapshots.length; j++) {
+            const snapshot = snapshots[j];
+
+            const thread = this.threadsByLinuxPid[snapshot.args.calling_tid];
+            if (!thread) continue;
+
+            snapshot.snapshottedOnThread = thread;
+
+            if (!thread.tempNetSnapshots) {
+              thread.tempNetSnapshots = [];
+            }
+            thread.tempNetSnapshots.push(snapshot);
+
+            let irqThread = undefined;
+            if (!thread.tempNetRxIrqs) thread.tempNetRxIrqs = {};
+            if (!thread.tempNetTxIrqs) thread.tempNetTxIrqs = [];
+            if (!thread.tempNetTimeouts) thread.tempNetTimeouts = {};
+            if (!thread.tempNetTimeouts[ethName]) thread.tempNetTimeouts[ethName] = [];
+            if (!thread.tempNetIrqs) thread.tempNetIrqs = {};
+            if (!thread.tempNetIrqs[ethName]) thread.tempNetIrqs[ethName] = [];
+            if (!thread.tempNetIrqs[ethName][snapshot.objectInstance.scopedId.queue]) {
+
+              thread.tempNetIrqs[ethName][snapshot.objectInstance.scopedId.queue] = [];
+              thread.tempNetTimeouts[ethName][snapshot.objectInstance.scopedId.queue] = [];
+
+              // list all IRQ events for thread related to Ethernet hw-queues queues
+              for (const l in this.netirqs_) {
+                const irqed = this.netirqs_[l];
+                if ( irqed.adapter !== undefined && irqed.queue !== undefined ) {
+                  if ( ethName !==  irqed.adapter ||
+                       snapshot.objectInstance.scopedId.queue !== irqed.queue ) continue;
+                  // Add ethernet queue specific irq handler event
+                  thread.tempNetIrqs[ethName][snapshot.objectInstance.scopedId.queue].push(irqed);
+                  if (!irqThread &&
+                      this.threadsByIrqs[irqed.key] &&
+                      this.threadsByIrqs[irqed.key].length)
+                    irqThread = this.threadsByIrqs[irqed.key][0];
+                }
+              }
+              // list all Timeout events for each thread related to Ethernet hw-queues
+              for (const t in this.nettimeouts_) {
+                const timedout = this.nettimeouts_[t];
+                if ( timedout.adapter !== undefined && timedout.queue !== undefined ) {
+                  if ( ethName !==  timedout.adapter ||
+                       snapshot.objectInstance.scopedId.queue !== timedout.queue ) continue;
+                    // Add ethernet queue specific Timeout event
+                    thread.tempNetTimeouts[ethName][snapshot.objectInstance.scopedId.queue].push(timedout);
+                }
+              }
+            }
+            /*
+            */
+            for (const cpuNumber in this.model_.kernel.cpus) {
+              // Add NET_TX events from any CPU
+              if (!thread.tempNetTxIrqs[cpuNumber]) {
+
+                thread.tempNetTxIrqs[cpuNumber] = [];
+                for (const h in this.nettxirqs_) {
+                  const txirqed = this.nettxirqs_[h];
+                  if ( txirqed.cpu === parseInt(cpuNumber))
+                    thread.tempNetTxIrqs[cpuNumber].push(txirqed);
+                }
+              }
+            }
+
+            if ( irqThread &&
+                 this.netrxirqs_[irqThread.thread.tid]) {
+              /* Add ONLY once all ETH queue related threaded irq NET_RX event subset
+               */
+              if (!thread.tempNetRxIrqs[irqThread.thread.tid])
+                thread.tempNetRxIrqs[irqThread.thread.tid] = this.netrxirqs_[irqThread.thread.tid];
+            }
+
+            if (this.netrxirqs_[thread.tid]) {
+              /* Add user-thread related NET_RX event subset
+               */
+              if (!thread.tempNetRxIrqs[thread.tid])
+                thread.tempNetRxIrqs[thread.tid] = this.netrxirqs_[thread.tid];
+            }
+          }
+        }
+      }
+
+      for (const i in this.netqueues_) {
+        const queued = this.netqueues_[i];
+        const thread = this.threadsByLinuxPid[queued.tid];
+        if (!thread) continue;
+        thread.tempNetQueues = thread.tempNetQueues || [];
+        thread.tempNetQueues.push(queued);
+      }
+
+      for (const i in this.netxmits_) {
+        const xmited = this.netxmits_[i];
+        const thread = this.threadsByLinuxPid[xmited.tid];
+        if (!thread) continue;
+        thread.tempNetXmits = thread.tempNetXmits || [];
+        thread.tempNetXmits.push(xmited);
+      }
+
+      for (const i in this.netrecvs_) {
+        const recved = this.netrecvs_[i];
+        const thread = this.threadsByLinuxPid[recved.tid];
+        if (!thread) continue;
+        thread.tempNetRecvs = thread.tempNetRecvs || [];
+        thread.tempNetRecvs.push(recved);
+      }
+
+      this.model_.getAllThreads().forEach(function(thread) {
+        if (thread.tempNetSnapshots === undefined) return;
+        const origSnapshots = thread.tempNetSnapshots;
+        delete thread.tempNetSnapshots;
+
+        origSnapshots.sort(function(x, y) {
+          return x.ts - y.ts;
+        });
+
+        const queues = thread.tempNetQueues || [];
+        delete thread.tempNetQueues;
+        queues.sort(function(x, y) {
+          return x.ts - y.ts;
+        });
+
+        const xmits = thread.tempNetXmits || [];
+        delete thread.tempNetXmits;
+        xmits.sort(function(x, y) {
+          return x.ts - y.ts;
+        });
+
+        const recvs = thread.tempNetRecvs || [];
+        delete thread.tempNetRecvs;
+        recvs.sort(function(x, y) {
+          return x.ts - y.ts;
+        });
+
+        const txirqs = thread.tempNetTxIrqs || [];
+        delete thread.tempNetTxIrqs;
+        for (const cpuNumber of Object.keys(txirqs)) {
+          txirqs[cpuNumber].sort(function(x, y) {
+            return x.ts - y.ts;
+          });
+        }
+
+        const rxirqs = thread.tempNetRxIrqs || {};
+        delete thread.tempNetRxIrqs;
+        for (const tid of Object.keys(rxirqs)) {
+          rxirqs[tid].sort(function(x, y) {
+            return x.ts - y.ts;
+          });
+        }
+
+        const irqs = thread.tempNetIrqs || {};
+        delete thread.tempNetIrqs;
+        for (const caller of Object.keys(irqs)) {
+          for (const idx of Object.keys(irqs[caller])) {
+            irqs[caller][idx].sort(function(x, y) {
+              return x.ts - y.ts;
+            });
+          }
+        }
+
+        const timeouts = thread.tempNetTimeouts || {};
+        delete thread.tempNetTimeouts;
+        for (const netif of Object.keys(timeouts)) {
+          for (const qidx of Object.keys(timeouts[netif])) {
+            timeouts[netif][qidx].sort(function(x, y) {
+              return x.ts - y.ts;
+            });
+          }
+        }
+
+        // Walk the slice list and put slices between each original slice to
+        // show when the thread isn't running.
+        /*
+        NETWORKING_STATE.QUEUED
+        NETWORKING_STATE.XMIT
+        NETWORKING_STATE.TIMEOUT
+        NETWORKING_STATE.RECV
+        NETWORKING_STATE.IDLE
+        NETWORKING_STATE.STOPPED
+        NETWORKING_STATE.UNKNOWN
+        */
+        let duration = 0.001; //1us as default time budget
+        let queueDuration = 0;
+        let recvDuration = 0;
+        let schedDuration = 0;
+        let xmitDuration = 0;
+
+        let queueTS = undefined;
+        let recvTS = undefined;
+        let schedTS = undefined;
+        let xmitTS = undefined;
+
+        let state = undefined;
+        let args = {};
+        const aslices = [];
+        let aslice = undefined;
+        let asubslice = undefined;
+        let label = 'unknown'
+
+        let queue = undefined;
+        let recv = undefined;
+        let xmit = undefined;
+        let timeout = undefined;
+
+        if (origSnapshots.length) {
+
+          const snapshot = origSnapshots[0];
+
+          while (queues.length && queues[0].ts < snapshot.ts) {
+            const q = queues.shift();
+            if (q.key === snapshot.args.ref ) {
+              queue = q;
+            }
+          }
+
+          while (recvs.length && recvs[0].ts < snapshot.ts) {
+            const r = recvs.shift();
+            if (r.key === snapshot.args.ref ) {
+              recv = r;
+            }
+          }
+
+          if ( recv === undefined && rxirqs[thread.tid] ) {
+            // fallback on user-thread NET_RX call
+            while ( rxirqs[thread.tid].length &&
+                    rxirqs[thread.tid][0].ts < snapshot.ts ) {
+              const r = rxirqs[thread.tid].shift();
+              if (r.tid === snapshot.args.calling_tid) {
+                recv = r;
+              }
+            }
+          }
+
+          while (xmits.length && xmits[0].ts < snapshot.ts) {
+            const x = xmits.shift();
+            if (x.key === snapshot.args.ref ) {
+              xmit = x;
+            }
+          }
+
+          let irq = undefined;
+          let rxrirq = undefined;
+          while (irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue] &&
+                 irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].length &&
+                 irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue][0].ts < snapshot.ts) {
+            irq = irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].shift();
+          }
+
+          while (timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue] &&
+                 timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].length &&
+                 timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue][0].ts < snapshot.ts) {
+            timeout = timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].shift();
+          }
+
+          let lastIrq = undefined;
+          let lastRxIrq = undefined;
+          let lastXmit = undefined;
+          let lastRecv = undefined;
+          let lastTimeout = undefined;
+
+          if (origSnapshots.length === 1) {
+
+            if (xmits.length)
+              lastXmit = xmits.shift();
+            if (recvs.length)
+              lastRecv = recvs.shift();
+            else if (rxirqs[thread.tid] &&
+                     rxirqs[thread.tid].length)
+              lastRecv = rxirqs[thread.tid].shift();
+
+            if (timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue] && 
+                timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].length) {
+              lastTimeout = timeouts[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].shift();
+            }
+
+            if (irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue] && 
+                irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].length) {
+              lastIrq = irqs[snapshot.objectInstance.parent.eid][snapshot.objectInstance.scopedId.queue].shift();
+              if ( lastIrq &&
+                   this.threadsByIrqs[lastIrq.key] &&
+                   this.threadsByIrqs[lastIrq.key].length) {
+                const irqThread = this.threadsByIrqs[lastIrq.key][0];
+                if ( irqThread ) {
+                  // ignore all NET_RX calls prior the threaded-irq handler entry 
+                  while ( rxirqs[irqThread.thread.tid] &&
+                          rxirqs[irqThread.thread.tid].length ) {
+
+                    const r = rxirqs[irqThread.thread.tid].shift();
+                    if ( lastRxIrq !== undefined &&
+                         r.ts > snapshot.ts &&
+                         r.ts > lastIrq.ts ) {
+                         lastRxIrq = r;
+                         break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          queueTS = snapshot.ts;
+          recvTS = snapshot.ts;
+          schedTS = snapshot.ts;
+          xmitTS = snapshot.ts;
+
+          args = { 'key' : snapshot.args.ref,
+                   'netcall' : snapshot.args.calling_fct,
+                   'queuedby': undefined,
+                 };
+
+          switch (snapshot.args.type) {
+
+            case 'NET_TX':
+              label = 'egress'
+              state = NETWORKING_STATE.TXQUEUED;
+
+              if (queue) {
+                queueTS =  queue.ts;
+                queueDuration = snapshot.ts - queueTS;
+                duration = queueDuration > 0 ? queueDuration :  duration ;
+                args['queuedby'] = queue.tid;
+              }
+
+              if (origSnapshots.length === 1) {
+                // snapshot[0] is the 1st & the last
+
+                if (lastXmit) {
+                  xmitTS = lastXmit.ts;
+                  schedDuration = lastXmit.ts - schedTS ;
+                }
+
+                if (lastIrq) {
+                  // NET_RX call from threaded-irq handler
+                  xmitDuration = (lastIrq.ts + lastIrq.duration) - xmitTS;
+                }
+
+                if (lastRxIrq) {
+                  // NET_RX call from threaded-irq handler
+                  //xmitDuration = (lastRxIrq.ts + lastRxIrq.duration) - xmitTS;
+                  if (this.threadsByLinuxPid[lastRxIrq.tid])
+                    args['netsched'] = this.threadsByLinuxPid[lastRxIrq.tid].name;
+                }
+              }
+              break;
+
+            case 'NET_RX':
+              label = 'ingress'
+              state = NETWORKING_STATE.RXQUEUED;
+
+              if (irq) {
+                if (this.threadsByIrqs[irq.key] &&
+                  this.threadsByIrqs[irq.key].length) {
+                  const irqThread = this.threadsByIrqs[irq.key][0];
+                  if ( irqThread ) {
+                    args['queuedby'] = irqThread.thread.tid;
+                    args['irqname'] = irqThread.name;
+                    args['irqnum'] = irqThread.irq;
+                  }
+                }
+              }
+
+              if ( origSnapshots.length === 1) {
+                // snapshot[0] is the 1st & the last
+
+                if ( lastRecv )  {
+                  // netif_rx_exit or NET_TX direct call from thread
+                  recvTS = lastRecv.ts + lastRecv.duration;
+                  recvDuration = recvTS - snapshot.ts;
+                } else if ( irq && lastRxIrq) {
+                  // NET_RX exit call from a threaded-irq handler
+                  recvTS = lastRxIrq.ts + lastRxIrq.duration;
+                  recvDuration = recvTS - snapshot.ts;
+                }
+              }
+              break;
+
+            case 'XDP_TX':
+              label = 'egress'
+              duration = 0;
+              break;
+
+            case 'XDP_RX':
+              label = 'ingress'
+              duration = 0;
+              break;
+
+            default:
+              break;
+          }
+
+          aslice = new tr.model.AsyncSlice(tr.e.net.EthertypeToHuman(snapshot.args.protocol),
+             label,
+             tr.e.net.getColorForNet(snapshot.args.protocol),
+             queueTS,
+             snapshot.args,
+             duration);
+          aslice.important = false;
+
+          if (queueDuration > 0) {
+             // AsyncSlice's to show when a RX or TX packet is queued :
+             asubslice = new tr.e.net.EthAsyncSlice(
+                 state, '',
+                 queueTS, args, queueDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration ;
+          }
+
+          if (xmitDuration > 0 ) {
+            // AsyncSlice's to show when a TX packet is xmited :
+            asubslice = new tr.e.net.EthAsyncSlice(
+                NETWORKING_STATE.XMIT, '',
+                xmitTS, args, xmitDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration + xmitDuration;
+          }
+
+          if (recvDuration > 0 ) {
+             // AsyncSlice's to show when a  RX packet is recved :
+            aslice.duration = queueDuration + recvDuration;
+            asubslice = new tr.e.net.EthAsyncSlice(
+                 NETWORKING_STATE.RECV, '',
+                schedTS, args, recvDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration + xmitDuration;
+          }
+          aslices.push(aslice);
+
+        }
+
+        for (let j = 1; j < origSnapshots.length; j++) {
+
+          const prevSnapshot = origSnapshots[j - 1];
+          const nextSnapshot = origSnapshots[j];
+
+          queue = undefined;
+          recv = undefined;
+          xmit = undefined;
+          timeout = undefined;
+
+          while (queues.length && queues[0].ts < nextSnapshot.ts) {
+            const q = queues.shift();
+
+            if (q.ts > prevSnapshot.ts &&
+                q.key === nextSnapshot.args.ref )
+              queue = q;
+          }
+
+          while (recvs.length && recvs[0].ts < nextSnapshot.ts) {
+            const r = recvs.shift();
+
+            if (recv === undefined &&
+                r.ts > prevSnapshot.ts &&
+              r.key === prevSnapshot.args.ref )
+              recv = r;
+          }
+
+          if (!recv && rxirqs[thread.tid]) {
+            // fallback on thread NET_RX call
+            while (rxirqs[thread.tid] &&
+                   rxirqs[thread.tid].length &&
+                   rxirqs[thread.tid][0].ts < nextSnapshot.ts) {
+              const r = rxirqs[thread.tid].shift();
+
+              if (recv === undefined &&
+                  r.ts > prevSnapshot.ts &&
+                  r.tid === prevSnapshot.args.calling_tid)
+                recv = r;
+            }
+          }
+
+          while (xmits.length && xmits[0].ts < nextSnapshot.ts) {
+            const x = xmits.shift();
+
+            if (xmit === undefined &&
+                x.ts > prevSnapshot.ts &&
+                x.key === prevSnapshot.args.ref)
+              xmit = x;
+          }
+
+          let prevIrq = undefined;
+          let nextIrq = undefined;
+          let prevTxIrq = undefined;
+          let prevRxIrq = undefined;
+          let nextRxIrq = undefined;
+
+          /* process snapshot[n-1] event calls:
+           * - any thread call to NET_TX & NET_RX functions
+           * - any Ethernet top-half irq & bottom-halt thread call to NET_TX & NET_RX functions 
+           * - any net_dev_xmit entry call
+           * - any netif_rx or netif_rx_ni exit call
+            (1us default ingress/egress injection-time budget)
+          */
+
+          // Locate the first Timeout event starting right BEFORE the next Ethernet snapshot frames got queued
+          while (timeouts[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue] && 
+                 timeouts[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue].length &&
+                   timeouts[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue][0].ts < nextSnapshot.ts) {
+            const t = timeouts[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue].shift();
+
+            if ( t !== undefined &&
+                 t.ts > prevSnapshot.ts )
+              timeout = t;
+          }
+
+          // Locate the irq-handler starting right AFTER the previous EThernet snapshot frames got queued
+          while (irqs[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue] &&
+                 irqs[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue].length &&
+                 irqs[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue][0].ts < nextSnapshot.ts) {
+
+            const i = irqs[prevSnapshot.objectInstance.parent.eid][prevSnapshot.objectInstance.scopedId.queue].shift();
+
+            if ( i !== undefined &&
+                 i.ts > prevSnapshot.ts ) {
+              prevIrq = i;
+              // Locate all NET_TX events prior the irq-handler start
+              for (const cpuNumber of Object.keys(txirqs)) {
+                while (txirqs[cpuNumber].length &&
+                       txirqs[cpuNumber][0].ts < prevIrq.ts) {
+                  prevTxIrq = txirqs[cpuNumber].shift();
+                }
+                // Has an NET_TX handler occured between xmit_start and NET_RX
+                if (prevTxIrq !== undefined) {
+                  if (prevTxIrq.ts > prevSnapshot.ts) break;
+                  else prevTxIrq = undefined;
+                }
+              }
+              break;
+            }
+          }
+
+          if (prevIrq) {
+            // Locate the NET_RX event right after threaded-irq handler
+            if (this.threadsByIrqs[prevIrq.key] &&
+                this.threadsByIrqs[prevIrq.key].length) {
+              const irqThread = this.threadsByIrqs[prevIrq.key][0];
+              if ( irqThread ) {
+                while (rxirqs[irqThread.thread.tid] &&
+                       rxirqs[irqThread.thread.tid].length &&
+                       rxirqs[irqThread.thread.tid][0].ts < nextSnapshot.ts ) {
+
+                  const r = rxirqs[irqThread.thread.tid].shift();
+                  if (prevRxIrq === undefined &&
+                      r.ts > prevSnapshot.ts &&
+                      r.ts > prevIrq.ts )
+                    prevRxIrq = r;
+                    recv = prevRxIrq;
+                }
+              }
+            }
+          }
+
+          duration = 0.001;
+          queueDuration = 0;
+          recvDuration = 0;
+          schedDuration = 0;
+          xmitDuration = 0;
+
+          xmitTS = prevSnapshot.ts;
+          recvTS = prevSnapshot.ts;
+          schedTS = prevSnapshot.ts;
+
+          const midDuration = nextSnapshot.ts - prevSnapshot.ts;
+          if (midDuration) {
+            // the two snapshots don't have the same timestamp
+
+            aslice = aslices.pop();
+
+            asubslice = aslice.subSlices.pop();
+            if (asubslice)
+              args = asubslice.args;
+            else
+              args = { 'key' : prevSnapshot.args.ref,
+                       'netcall' : prevSnapshot.args.calling_fct,
+                       'queuedby' : undefined,
+                     };
+
+            switch (prevSnapshot.args.type) {
+
+              case 'NET_TX':
+                state = NETWORKING_STATE.IDLE;
+
+                if (xmit) {
+                  xmitTS = xmit.ts;
+                  schedDuration = xmitTS - schedTS;
+                }
+                if (prevTxIrq) {
+                  xmitTS = (prevTxIrq.ts + prevTxIrq.duration);
+                  schedDuration = xmitTS - schedTS;
+                  if (this.threadsByLinuxPid[prevTxIrq.tid]) {
+                    const irqThread = this.threadsByLinuxPid[prevTxIrq.tid];
+                    if ( irqThread )
+                      args['netsched'] = irqThread.name;
+                  }
+                }
+                if (prevIrq) {
+                  xmitDuration = (prevIrq.ts + prevIrq.duration) - xmitTS;
+                  if (this.threadsByIrqs[prevIrq.key] &&
+                      this.threadsByIrqs[prevIrq.key].length) {
+                    const irqThread = this.threadsByIrqs[prevIrq.key][0];
+                    if ( irqThread ) {
+                      args['irqname'] = irqThread.name;
+                      args['irqnum'] = irqThread.irq;
+                    }
+                  }
+                }
+
+                if ( aslice ) {
+
+                    if (asubslice &&
+                        xmit &&
+                        args.queuedby === xmit.tid ){
+                      aslice.subSlices.push(asubslice);
+                      aslice.duration += xmitDuration > 0 ? schedDuration + xmitDuration : duration;
+                    } else if (asubslice &&
+                             prevIrq  &&
+                             this.threadsByIrqs[prevIrq.key] &&
+                             this.threadsByIrqs[prevIrq.key].length ) {
+                      aslice.subSlices.push(asubslice);
+                      aslice.duration += xmitDuration > 0 ? schedDuration + xmitDuration : duration;
+                    } else {
+                      // New thread NET_RX call
+                      aslice.start = schedTS;
+                      aslice.duration = xmitDuration > 0 ? schedDuration + xmitDuration : duration;
+                    }
+                }
+                break;
+
+              case 'NET_RX':
+                state = NETWORKING_STATE.IDLE;
+
+                if (recv) {
+                  recvTS = recv.ts + recv.duration;
+                  recvDuration = recvTS - schedTS;
+                }
+
+                if ( aslice ) {
+                  if (asubslice && recv &&
+                      args.queuedby === recv.tid) {
+                    // Old thread NET_RX called by prior handled rx-irq
+                    aslice.subSlices.push(asubslice);
+                    aslice.duration += recvDuration > 0 ? recvDuration : duration;
+                  }
+                  else {
+                  // New thread NET_RX call, ignore prior handled rx-irq
+                    aslice.start = schedTS;
+                    aslice.duration = recvDuration > 0 ? recvDuration : duration;
+                  }
+                }
+                break;
+
+              case 'XDP_TX':
+                state = NETWORKING_STATE.WAIT;
+                if (timeout) {
+                  schedTS = timeout.ts;
+                  schedDuration = nextSnapshot.ts - schedTS;
+                  xmitDuration = schedTS - prevSnapshot.ts;
+                }
+
+                if ( aslice ) {
+
+                    if (asubslice &&
+                        xmit &&
+                        args.queuedby === xmit.tid ) {
+                      aslice.subSlices.push(asubslice);
+                    } else if (asubslice &&
+                             prevIrq  &&
+                             this.threadsByIrqs[prevIrq.key] &&
+                             this.threadsByIrqs[prevIrq.key].length ) {
+                      aslice.subSlices.push(asubslice);
+                    }
+                    aslice.duration = midDuration;
+                }
+                break;
+
+              case 'XDP_RX':
+                state = NETWORKING_STATE.WAIT;
+
+                if (timeout) {
+                  schedTS = timeout.ts;
+                  schedDuration = nextSnapshot.ts - schedTS;
+                  recvDuration = schedTS - prevSnapshot.ts;
+                }
+
+                if ( aslice ) {
+
+                  if (asubslice && recv &&
+                      args.queuedby === recv.tid) {
+                    // Old thread NET_RX called by prior handled rx-irq
+                    aslice.subSlices.push(asubslice);
+                  }
+                  aslice.duration = midDuration;
+                }
+                break;
+
+              default:
+                break;
+            }
+
+            if (schedDuration > 0 && aslice ) {
+              // AsyncSlice's to show when the TX packets is scheduled:
+              asubslice = new tr.e.net.EthAsyncSlice(
+                  state, '',
+                  schedTS, args, schedDuration);
+              aslice.subSlices.push(asubslice);
+            }
+
+            if (xmitDuration > 0 && aslice ) {
+              // AsyncSlice's to show when the TX packets is xmited :
+              asubslice = new tr.e.net.EthAsyncSlice(
+                  NETWORKING_STATE.XMIT, '',
+                  xmitTS, args, xmitDuration);
+              aslice.subSlices.push(asubslice);
+            }
+
+            if (recvDuration > 0 && aslice ) {
+               // AsyncSlice's to show when the TX packets is recved :
+              asubslice = new tr.e.net.EthAsyncSlice(
+                   NETWORKING_STATE.RECV, '',
+                  schedTS, args, recvDuration);
+              aslice.subSlices.push(asubslice);
+            }
+
+            if (aslice !== undefined )
+              aslices.push(aslice);
+          }
+
+          /* process snapshot[n] event calls:
+           * - any thread call to NET_TX & NET_RX functions
+           * - any Ethernet top-half irq & bottom-halt thread call to NET_TX & NET_RX functions 
+           * - any net_dev_queues entry call
+           *
+           * process snapshot[last] event calls:
+           * - any net_dev_xmit and net_dev_queues entry call
+           * - any netif_rx or netif_rx_ni exit call
+            (1us default ingress/egress injection-time budget)
+          */
+          if (nextSnapshot.objectInstance.parent.eid === prevSnapshot.objectInstance.parent.eid &&
+              nextSnapshot.objectInstance.scopedId.queue === prevSnapshot.objectInstance.scopedId.queue) {
+
+            nextIrq = prevIrq;
+            nextRxIrq = prevRxIrq;
+
+            }
+
+          // Locate the irq-handler event starting right BEFORE the next Ethernet snapshot frames got queued
+          while (irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue] && 
+                 irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue].length &&
+                   irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue][0].ts < nextSnapshot.ts) {
+            const i = irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue].shift();
+
+            if ( i !== undefined &&
+                 i.ts > prevSnapshot.ts )
+              nextIrq = i;
+          }
+
+          lastIrq = undefined;
+          lastRxIrq = undefined;
+          lastXmit = undefined;
+          lastRecv = undefined;
+          lastTimeout = undefined;
+          if (j === origSnapshots.length - 1 ) {
+            // The next snapshot is the last on the snapshots list
+            if (xmits.length)
+              lastXmit = xmits.shift();
+            if (recvs.length)
+              lastRecv = recvs.shift();
+            else if ( rxirqs[thread.tid] &&
+                      rxirqs[thread.tid].length)
+              lastRecv = rxirqs[thread.tid].shift();
+
+            if (irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue] &&
+                irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue].length) {
+              lastIrq = irqs[nextSnapshot.objectInstance.parent.eid][nextSnapshot.objectInstance.scopedId.queue].shift();
+              if ( lastIrq &&
+                   this.threadsByIrqs[lastIrq.key] &&
+                   this.threadsByIrqs[lastIrq.key].length) {
+                const irqThread = this.threadsByIrqs[lastIrq.key][0];
+                if ( irqThread ) {
+                  // ignore all NET_RX calls prior the threaded-irq handler entry 
+                  while ( rxirqs[irqThread.thread.tid] &&
+                          rxirqs[irqThread.thread.tid].length ) {
+
+                    const r = rxirqs[irqThread.thread.tid].shift();
+                    if ( lastRxIrq !== undefined &&
+                         r.ts > nextSnapshot.ts &&
+                         r.ts > lastIrq.ts ) {
+                         lastRxIrq = r;
+                         break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          duration = 0.001;
+          queueDuration = 0;
+          recvDuration = 0;
+          xmitDuration = 0;
+          schedDuration = 0;
+
+          queueTS = nextSnapshot.ts;
+          xmitTS = nextSnapshot.ts;
+          recvTS = nextSnapshot.ts;
+          schedTS = nextSnapshot.ts;
+
+          args = { 'key' : nextSnapshot.args.ref,
+                   'netcall' : nextSnapshot.args.calling_fct,
+                   'queuedby' : undefined,
+                 };
+
+          switch (nextSnapshot.args.type) {
+
+            case 'NET_TX':
+              label = 'egress'
+              state = NETWORKING_STATE.TXQUEUED;
+
+              if (queue) {
+                queueTS =  queue.ts;
+                queueDuration = nextSnapshot.ts - queueTS;
+                duration = queueDuration > 0 ? queueDuration : duration;          
+                args['queuedby'] = queue.tid;
+              }
+
+              if (j === origSnapshots.length - 1 ) {
+                // The next snapshot[0] is the last
+
+                if (lastXmit) {
+                  xmitTS = nextSnapshot.ts;
+                  schedDuration = xmitTS - schedTS;
+                }
+
+                if (lastIrq) {
+                  // NET_RX call from threaded-irq handler
+                  xmitDuration = (lastIrq.ts + lastIrq.duration) - xmitTS;
+
+                  if (this.threadsByIrqs[lastIrq.key] &&
+                      this.threadsByIrqs[lastIrq.key].length) {
+                    const irqThread = this.threadsByIrqs[lastIrq.key][0];
+                    if ( irqThread ) {
+                      args['irqname'] = irqThread.name;
+                      args['irqnum'] = irqThread.irq;
+                    }
+                  }
+                }
+
+                if (lastRxIrq) {
+                  // NET_RX call from threaded-irq handler
+                  //xmitDuration = (lastRxIrq.ts + lastRxIrq.duration) - xmitTS;
+                  if (this.threadsByLinuxPid[lastRxIrq.tid])
+                    args['netsched'] = this.threadsByLinuxPid[lastRxIrq.tid].name;
+                }
+              }
+              break;
+
+            case 'NET_RX':
+              label = 'ingress';
+              state = NETWORKING_STATE.RXQUEUED;
+
+              if (nextIrq) {
+                queueTS = nextIrq.ts;
+                queueDuration = queueTS - nextSnapshot.ts;
+                duration = queueDuration > 0 ? queueDuration : duration;
+                if (this.threadsByIrqs[nextIrq.key] &&
+                    this.threadsByIrqs[nextIrq.key].length) {
+                  const irqThread = this.threadsByIrqs[nextIrq.key][0];
+                  if ( irqThread ) {
+                    args['irqname'] = irqThread.name;
+                    args['irqnum'] = irqThread.irq;
+                    args['queuedby'] = irqThread.thread.tid;
+                  }
+                }
+              }
+
+              if (j === origSnapshots.length - 1 ) {
+                // The next snapshot is the last
+
+                if ( lastRecv )  {
+                  // netif_rx_exit or NET_TX direct call from thread
+                  recvTS = lastRecv.ts + lastRecv.duration;
+                  recvDuration = recvTS - nextSnapshot.ts;
+                } else if ( nextIrq && lastRxIrq) {
+                  // NET_RX exit call from a threaded-irq handler
+                  recvTS = lastRxIrq.ts + lastRxIrq.duration;
+                  recvDuration = recvTS - nextSnapshot.ts;
+                }
+              }
+              break;
+
+            case 'XDP_TX':
+              label = 'egress'
+              duration = 0;
+              if (j === origSnapshots.length - 1 ) {
+                // The next snapshot is the last
+                if (lastXmit) {
+                  xmitDuration = lastXmit.ts - nextSnapshot.ts;
+                  duration = xmitDuration;
+                }
+              }
+              break;
+
+            case 'XDP_RX':
+              label = 'ingress'
+              duration = 0;
+              if (j === origSnapshots.length - 1 ) {
+                // The next snapshot is the last
+                if (lastRecv) {
+                  recvDuration = lastRecv.ts - nextSnapshot.ts;
+                  duration = recvDuration;
+                }
+              }
+              break;
+
+            default:
+              break;
+          }
+
+          aslice = new tr.model.AsyncSlice(tr.e.net.EthertypeToHuman(nextSnapshot.args.protocol),
+             label,
+             tr.e.net.getColorForNet(nextSnapshot.args.protocol),
+             queueTS,
+             nextSnapshot.args,
+             duration);
+          aslice.important = false;
+
+          if (queueDuration > 0) {
+             // AsyncSlice's to show when a RX or TX packet is queued :
+             asubslice = new tr.e.net.EthAsyncSlice(
+                 state, '',
+                 queueTS, args, queueDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration ;
+          }
+          if (xmitDuration > 0 ) {
+            // AsyncSlice's to show when a TX packet is xmited :
+            asubslice = new tr.e.net.EthAsyncSlice(
+                NETWORKING_STATE.XMIT, '',
+                xmitTS, args, xmitDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration + xmitDuration;
+          }
+
+          if (recvDuration > 0 ) {
+             // AsyncSlice's to show when a  RX packet is recved :
+            aslice.duration = queueDuration + recvDuration;
+            asubslice = new tr.e.net.EthAsyncSlice(
+                 NETWORKING_STATE.RECV, '',
+                schedTS, args, recvDuration);
+            aslice.subSlices.push(asubslice);
+            aslice.duration = queueDuration + recvDuration;
+          }
+
+          aslices.push(aslice);
+
+        }
+
+        //thread.asyncSliceGroup.slices.concat(aslices);
+        thread.asyncSliceGroup.slices = aslices;
+      }, this);
+
+    },
+
+    /**
      * Creates an instance of each registered linux perf event parser.
      * This allows the parsers to register handlers for the events they
      * understand.  We also register our own special handlers (for the
@@ -1702,6 +2760,92 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           function() { return true; });
       this.registerEventHandler('0:trace_event_clock_sync',
           function() { return true; });
+    },
+
+    /**
+     * Processes a trace_event_clock_sync PTP event.
+     */
+    traceClockPtpSyncEvent_(eventName, cpuNumber, pid, ts, eventBase) {
+      // Check to see if we have a special clock sync marker that contains both
+      // the current "ftrace global" time and the 802.1AS time
+      //check_clocks-2285    (   2285) [001] ....... 65428.639053: tracing_mark_write: 0: trace_event_clock_sync: parent_ts=1525853974.18952 seq=64884 tai_lat=15850 ep=enp1s0
+
+      event = /parent_ts=(\d+)\.(\d+) seq=(\d+) tai_lat=(.+) ep=(\S+)/.exec(eventBase.details);
+      if (!event) return false;
+      const pps_num = parseInt(event[3]);
+      const tai_offset = parseInt(event[4]);
+      const syncep = event[5];
+
+      const pps_tv_sec = parseInt(event[1]);
+      const pps_tv_nsec = parseInt(event[2]);
+      const TIME = tr.b.UnitScale.TIME;
+      const ptpMsTs = tr.b.convertUnit(pps_tv_sec, TIME.SEC, TIME.MILLI_SEC) + tr.b.convertUnit(
+              pps_tv_nsec, TIME.NANO_SEC, TIME.MILLI_SEC);
+      // A PTP timestamp of zero is used as a sentinel value to indicate
+      // that 802.1AS and the ftrace global clock are identical.
+      if (ptpMsTs === 0) ptpMsTs = ts;
+      const ptpNsTs = tr.b.convertUnit(ptpMsTs, TIME.MILLI_SEC, TIME.SEC);
+
+      if (!this.haveClockSyncedPtpToGlobal_) {
+        // We have a clock sync event that contains two timestamps: a timestamp
+        // according to the ftrace 'global' clock, and that same timestamp
+        // according to clock_gettime(fd_to_clockid(fd_ptp), &ts_ptp)
+        /*
+        */
+        this.model_.clockSyncManager.addClockSyncMarker(
+            this.clockDomainId_,
+            PTP_TO_FTRACE_GLOBAL_SYNC_ID, ts);
+        this.model_.clockSyncManager.addClockSyncMarker(
+            tr.model.ClockDomainId.LINUX_CLOCK_PTP,
+            PTP_TO_FTRACE_GLOBAL_SYNC_ID, ptpMsTs);
+        this.haveClockSyncedPtpToGlobal_ = true;
+      }
+
+      const convertFn = this.model_.clockSyncManager.getModelTimeTransformer(
+          tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL);
+
+      const ppsMsTs = convertFn(ts);
+      const ppsNsTs = tr.b.convertUnit(ppsMsTs, TIME.MILLI_SEC, TIME.SEC);
+      const args = {
+        'syncep': syncep,
+        'ptp_tv_sec': pps_tv_sec,
+        'ptp_tv_nsec': pps_tv_nsec,
+        'tai_lat_nsec': tai_offset,
+        'ftrace_lat_nsec': parseInt(ppsNsTs - ptpNsTs),
+        'index': pps_num
+      };
+
+      constructor = tr.model.ProcessInstantEvent;
+      const parent = this.model_.getOrCreateNetdev(syncep);
+
+      const instantEvent = new constructor('PTP', 'pps',
+          tr.b.ColorScheme.getColorIdForReservedName('black'), ppsMsTs,
+          args, parent);
+      parent.instantEvents.push(instantEvent);
+
+      const counter = parent.
+          getOrCreateCounter(null, "ptp-error");
+      if (counter.numSeries === 0) {
+        counter.addSeries(new tr.model.CounterSeries('pps PTP-time latency [us]',
+            ColorScheme.getColorIdForGeneralPurposeString(counter.name)));
+      }
+      counter.series.forEach(function(series) {
+        series.addCounterSample(ppsMsTs, tr.b.convertUnit(
+              pps_tv_nsec, TIME.NANO_SEC, TIME.MICRO_SEC));
+      });
+
+      const tai_counter = parent.
+          getOrCreateCounter(null, "tai-error");
+      if (tai_counter.numSeries === 0) {
+        tai_counter.addSeries(new tr.model.CounterSeries('pps TAI-time latency [us]',
+            ColorScheme.getColorIdForGeneralPurposeString(tai_counter.name)));
+      }
+      tai_counter.series.forEach(function(series) {
+        series.addCounterSample(ppsMsTs, tr.b.convertUnit(
+              tai_offset, TIME.NANO_SEC, TIME.MICRO_SEC));
+      });
+
+      return true;
     },
 
     /**

@@ -34,6 +34,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/stack_frame.html">
 <link rel="import" href="/tracing/model/user_model/user_expectation.html">
 <link rel="import" href="/tracing/model/user_model/user_model.html">
+<link rel="import" href="/tracing/model/ethernet.html">
 
 <script>
 'use strict';
@@ -59,6 +60,7 @@ tr.exportTo('tr', function() {
   const PseudoProcess = tr.model.PseudoProcess;
   const Device = tr.model.Device;
   const Kernel = tr.model.Kernel;
+  const Ethernet = tr.model.Ethernet;
   const GlobalMemoryDump = tr.model.GlobalMemoryDump;
   const GlobalInstantEvent = tr.model.GlobalInstantEvent;
   const FlowEvent = tr.model.FlowEvent;
@@ -78,6 +80,7 @@ tr.exportTo('tr', function() {
 
     this.device = new Device(this);
     this.kernel = new Kernel(this);
+    this.netdevs = {};
     this.processes = {};
     this.metadata = [];
     this.categories = [];
@@ -161,6 +164,7 @@ tr.exportTo('tr', function() {
       yield this.userModel;
       yield this.device;
       yield this.kernel;
+      yield* Object.values(this.netdevs);
       yield* Object.values(this.processes);
     },
 
@@ -173,6 +177,9 @@ tr.exportTo('tr', function() {
       this.kernel.iterateAllPersistableObjects(callback);
       for (const pid in this.processes) {
         this.processes[pid].iterateAllPersistableObjects(callback);
+      }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].iterateAllPersistableObjects(callback);
       }
     },
 
@@ -256,6 +263,16 @@ tr.exportTo('tr', function() {
       return this.processes[name];
     },
 
+    /**
+     * @return {Eth} Gets a TimelineEthernet for a specified id or
+     * creates one if it does not exist.
+     */
+    getOrCreateNetdev: function(name) {
+      if (!this.netdevs[name])
+        this.netdevs[name] = new Ethernet(this, name);
+      return this.netdevs[name];
+    },
+
     addStackFrame(stackFrame) {
       if (this.stackFrames[stackFrame.id]) {
         throw new Error('Stack frame already exists');
@@ -274,6 +291,9 @@ tr.exportTo('tr', function() {
       this.kernel.addCategoriesToDict(categoriesDict);
       for (const pid in this.processes) {
         this.processes[pid].addCategoriesToDict(categoriesDict);
+      }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].addCategoriesToDict(categoriesDict);
       }
 
       this.categories = [];
@@ -296,6 +316,17 @@ tr.exportTo('tr', function() {
         }
       }
       return threads;
+    },
+
+    getAllNetdevs(opt_predicate) {
+      const netifs = [];
+      for (const eid in this.netdevs) {
+        const netdev = this.netdevs[eid];
+        if (opt_predicate === undefined || opt_predicate(netdev)) {
+          netifs.push(netdev);
+        }
+      }
+      return netifs;
     },
 
     /**
@@ -329,6 +360,13 @@ tr.exportTo('tr', function() {
         for (const tid in process.counters) {
           counters.push(process.counters[tid]);
         }
+      }
+      for (const eid in this.netdevs) {
+        const queue = this.netdevs[eid];
+        for (const tid in process.counters) {
+          counters.push(process.counters[tid]);
+        }
+        this.netdevs[eid].iterateAllPersistableObjects(callback);
       }
       return counters;
     },
@@ -490,6 +528,9 @@ tr.exportTo('tr', function() {
       for (const pid in this.processes) {
         this.processes[pid].autoCloseOpenSlices();
       }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].autoCloseOpenSlices();
+      }
     },
 
     createSubSlices() {
@@ -497,11 +538,17 @@ tr.exportTo('tr', function() {
       for (const pid in this.processes) {
         this.processes[pid].createSubSlices();
       }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].createSubSlices();
+      }
     },
 
     preInitializeObjects() {
       for (const pid in this.processes) {
         this.processes[pid].preInitializeObjects();
+      }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].preInitializeObjects();
       }
     },
 
@@ -509,12 +556,18 @@ tr.exportTo('tr', function() {
       for (const pid in this.processes) {
         this.processes[pid].initializeObjects();
       }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].initializeObjects();
+      }
     },
 
     pruneEmptyContainers() {
       this.kernel.pruneEmptyContainers();
       for (const pid in this.processes) {
         this.processes[pid].pruneEmptyContainers();
+      }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].pruneEmptyContainers();
       }
     },
 
@@ -544,6 +597,9 @@ tr.exportTo('tr', function() {
     cleanupUndeletedObjects() {
       for (const pid in this.processes) {
         this.processes[pid].autoDeleteObjects(this.bounds.max);
+      }
+      for (const eid in this.netdevs) {
+        this.netdevs[eid].autoDeleteObjects(this.bounds.max);
       }
     },
 
