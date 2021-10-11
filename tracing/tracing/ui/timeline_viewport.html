@@ -100,7 +100,8 @@ tr.exportTo('tr.ui', function() {
 
     // Grid system.
     this.gridTimebase_ = 0;
-    this.gridStep_ = 1000 / 60;
+    this.gridStep_ = 1;
+    this.gridFineStep_ = 0.250;    
     this.gridEnabled_ = false;
 
     // Init logic.
@@ -285,6 +286,10 @@ tr.exportTo('tr.ui', function() {
       return this.gridStep_;
     },
 
+    get gridFineStep() {
+      return this.gridFineStep_;
+    },
+
     get interestRange() {
       return this.interestRange_;
     },
@@ -386,6 +391,35 @@ tr.exportTo('tr.ui', function() {
         x += this.gridStep;
       }
       ctx.strokeStyle = 'rgba(255, 0, 0, 0.25)';
+      ctx.stroke();
+
+      ctx.restore();
+    },
+
+    drawGridFineLines(ctx, viewLWorld, viewRWorld, viewHeight) {
+      if (!this.gridEnabled || !this.highDetails) return;
+
+      const dt = this.currentDisplayTransform;
+      let x = this.gridTimebase;
+
+      // Apply subpixel translate to get crisp lines.
+      // http://www.mobtowers.com/html5-canvas-crisp-lines-every-time/
+      ctx.save();
+      ctx.translate((Math.round(ctx.lineWidth) % 2) / 2, 0);
+
+      ctx.beginPath();
+      while (x < viewRWorld) {
+        if (x >= viewLWorld) {
+          // Do conversion to viewspace here rather than on
+          // x to avoid precision issues.
+          const vx = Math.floor(dt.xWorldToView(x));
+          tr.ui.b.drawLine(ctx, vx, 0, vx, viewHeight);
+        }
+
+        x += this.gridFineStep;
+      }
+
+      ctx.strokeStyle = 'rgba(0, 0, 255, 0.15)';
       ctx.stroke();
 
       ctx.restore();

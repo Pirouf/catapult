@@ -136,6 +136,8 @@ tr.exportTo('tr.ui.tracks', function() {
 
       this.viewport.drawGridLines(
           this.ctx_, viewLWorld, viewRWorld, viewHeight);
+      this.viewport.drawGridFineLines(
+          this.ctx_, viewLWorld, viewRWorld, viewHeight);
     },
 
     // Update's this.offsetY_, returning true if the value has changed
