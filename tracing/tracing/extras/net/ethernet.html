@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<!--
+###############################################################################
+#
+# Copyright (c) 2020-2022, Intel Corporation
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#  1. Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#  3. Neither the name of the copyright holder nor the names of its
+#     contributors may be used to endorse or promote products derived from
+#     this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+###############################################################################
+-->
+
+<link rel="import" href="/tracing/model/async_slice.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.e.net', function() {
+  const AsyncSlice = tr.model.AsyncSlice;
+
+  // regex the irq/threads sched record
+  const ethIrqHandlerRE =
+      /(enp\d+[a-z0-9]*)[-:]\S+\-(\d+)$|(eth\d+)[-:]\S+\-(\d+)$/;
+  const vnetIrqHandlerRE =
+      /(vnet)(\d*)$/;
+
+  const NETWORKING_STATE = {
+    RXQUEUED: 'Rx-data Queued',
+    TXQUEUED: 'Tx-data Queued',
+    XMIT: 'Tx-Link Running',
+    TIMEOUT: 'Net-Scheduler Timed-out',
+    WAIT: 'Net-Scheduler Wait',
+    IDLE: 'Net-Scheduler Idle',
+    RECV: 'Rx-Link Running',
+    STOPPED: 'Tx/Rx Link Stopped',
+    UNKNOWN: 'UNKNOWN',
+  };
+
+  const VLAN_MASK = {
+    VLAN_PCP : 0xC000,
+    VLAN_ID :  0x001F,
+    NO_FLAGS : 0,
+  };
+
+  const ETHERTYPE = {
+    IP_ETH :    0x0800, // IPv4
+    ARP_ETH :   0x0806, // Address Resolution Protocol (ARP)
+    VLANQ_ETH : 0x8100, // 802.1Q
+    IPV6_ETH :  0x86dd, // IPv6
+    EC_ETH :    0x88A4, // EtherCAT Protocol
+    PN_ETH :    0x8892, // PROFINET Protocol
+    SC_ETH :    0x88CD, // SERCOS III
+    PTP_ETH :   0x88F7, // Precision Time Protocol (PTP) over Ethernet (IEEE 1588)
+    LLDP_ETH :  0x88CC, // Link Layer Discovery Protocol (LLDP)
+    UADP_ETH :  0xB62C, // OPC UADP NetworkMessage
+  };
+
+  /**
+   * A EthAsyncSlice is a slice of time on a specific Ethernet transactions where that packet
+   * was running on a specific data-Link, or in a specific idle state.
+   *
+   * @constructor
+   */
+  function EthAsyncSlice(linkState, cat,
+      start, args, duration) {
+    AsyncSlice.call(this, cat, linkState,
+        this.getColorForState_(linkState),
+        start, args, duration);
+    // Boolean variables indicating whether we have computed corresponding
+    // fields. Computing these fields needs iteration through all sub-slices and
+    // so recomputation will be costly.
+    this.byteCount_ = undefined;
+    this.linkState = undefined;
+    this.queueOnWhichTransactionWasRunning = undefined;
+  }
+
+  function VlanTciToHuman(num) {
+    const flag = parseInt(num, 16);
+    return { 'VID' : (flag & VLAN_MASK.VLAN_ID),
+             'PCP' : ((flag & VLAN_MASK.VLAN_PCP) << 13) };
+  }
+
+  function EthertypeToHuman(proto) {
+    const flag = parseInt(proto, 16);
+    let str;
+
+    switch (flag) {
+      case ETHERTYPE.IP_ETH:
+         str = 'IPv4';
+         break;
+      case ETHERTYPE.IPV6_ETH:
+         str = 'IPv6';
+         break;
+      case ETHERTYPE.ARP_ETH:
+         str = 'ARP';
+         break;
+      case ETHERTYPE.EC_ETH:
+         str = 'EthCAT';
+         break;
+      case ETHERTYPE.PN_ETH:
+         str = 'ProNET';
+         break;
+      case ETHERTYPE.SC_ETH:
+         str = 'SERCOS';
+         break;
+      case ETHERTYPE.PTP_ETH:
+         str = 'PTPv2';
+         break;
+      case ETHERTYPE.LLDP_ETH:
+         str = 'LLDP';
+         break;
+      case ETHERTYPE.UADP_ETH:
+         str = 'OPCUA';
+         break;
+      default :
+         str = 'UNKNOWN';
+    }
+    return str;
+  }
+
+  function getColorForNet(proto) {
+    const flag = parseInt(proto, 16);
+    const getColorIdForReservedName =
+        tr.b.ColorScheme.getColorIdForReservedName;
+    switch (flag) {
+      case ETHERTYPE.IP_ETH:
+      case ETHERTYPE.IPV6_ETH:
+         return getColorIdForReservedName('net_ipv4');
+      case ETHERTYPE.EC_ETH:
+         return getColorIdForReservedName('net_ecat');
+      case ETHERTYPE.PN_ETH:
+         return getColorIdForReservedName('net_pfn');
+      case ETHERTYPE.PTP_ETH:
+         return getColorIdForReservedName('net_ptp');
+      case ETHERTYPE.UADP_ETH:
+         return getColorIdForReservedName('net_uadp');
+      case ETHERTYPE.SC_ETH:
+         return getColorIdForReservedName('olive');
+      case ETHERTYPE.LLDP_ETH:
+      case ETHERTYPE.ARP_ETH:
+         return getColorIdForReservedName('white');
+      case ETHERTYPE.VLANQ_ETH:
+      default :
+         return getColorIdForReservedName('net_unknown');
+    }
+  }
+
+  EthAsyncSlice.prototype = {
+    __proto__: AsyncSlice.prototype,
+
+    get viewSubGroupTitle() {
+      return '';
+    },
+
+    getColorForState_(state) {
+      const getColorIdForReservedName =
+          tr.b.ColorScheme.getColorIdForReservedName;
+
+      switch (state) {
+        case NETWORKING_STATE.TXQUEUED:
+        case NETWORKING_STATE.RXQUEUED:
+          return getColorIdForReservedName('thread_state_runnable');
+        case NETWORKING_STATE.RECV:
+        case NETWORKING_STATE.XMIT:
+          return getColorIdForReservedName('thread_state_running');
+        case NETWORKING_STATE.IDLE:
+        case NETWORKING_STATE.WAIT:
+          return getColorIdForReservedName('thread_state_iowait');
+        case NETWORKING_STATE.TIMEOUT:
+        case NETWORKING_STATE.STOPPED:
+          return getColorIdForReservedName('thread_state_uninterruptible');
+        case NETWORKING_STATE.UNKNOWN:
+        default:
+          return getColorIdForReservedName('thread_state_unknown');
+      }
+    },
+
+
+    // A recursive helper function
+    get byteCount() {
+      if (this.byteCount_ !== undefined) {
+        return this.byteCount_;
+      }
+      /* TODO : Flo
+      this.byteCount_ = 0;
+      for (let i = 0; i < this.subSlices.length; i++) {
+        this.byteCount_ += this.subSlices[i].byteCount;
+      }
+      return this.byteCount_;
+      */
+    },      
+  };
+
+  const eventTypeNames = [
+    'ingress',
+    'egress'
+  ];
+  const allTypeNames = ['EthernetLatency'];
+  eventTypeNames.forEach(function(eventTypeName) {
+    // New style.
+    allTypeNames.push('EthernetLatency::' + eventTypeName);
+  });
+
+  AsyncSlice.subTypes.register(
+      EthAsyncSlice,
+      {
+        typeNames: allTypeNames,
+        categoryParts: ['ethernetInfo']
+      });
+
+  return {
+    EthAsyncSlice,
+    ethIrqHandlerRE,
+    vnetIrqHandlerRE,
+    getColorForNet,
+    VlanTciToHuman,
+    EthertypeToHuman,
+    NETWORKING_STATE,
+    ETHERTYPE,
+  };
+
+});
+  
+</script>

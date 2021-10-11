@@ -230,6 +230,13 @@ Polymer({
         'Highlight VSync');
     Polymer.dom(this.optionsDropdown_).appendChild(
         this.highlightVSyncCheckbox_);
+    this.highlightPTPSync_ = false;
+    this.highlightPTPSyncCheckbox_ = tr.ui.b.createCheckBox(
+        this, 'highlightPTPSync',
+        'tr.ui.TimelineView.highlightPTPSync', false,
+        'Highlight PTPSync');
+    Polymer.dom(this.optionsDropdown_).appendChild(
+        this.highlightPTPSyncCheckbox_);
 
     this.initMetadataButton_();
     this.initConsoleButton_();
@@ -318,6 +325,17 @@ Polymer({
     if (!this.trackView_) return;
 
     this.trackView_.viewport.highlightVSync = highlightVSync;
+  },
+
+  get highlightPTPSync() {
+    return this.highlightPTPSync_;
+  },
+
+  set highlightPTPSync(highlightPTPSync) {
+    this.highlightPTPSync_ = highlightPTPSync;
+    if (!this.trackView_) return;
+
+    this.trackView_.viewport.highlightPTPSync = highlightPTPSync;
   },
 
   initHelpButton_() {
@@ -554,6 +572,7 @@ Polymer({
       this.trackView_.model = model;
       this.trackView_.viewport.selectedFlowEvents = this.selectedFlowEvents;
       this.trackView_.viewport.highlightVSync = this.highlightVSync;
+      this.trackView_.viewport.highlightPTPSync = this.highlightPTPSync;
       if (this.railScoreSpan_) {
         this.railScoreSpan_.model = model;
       }
@@ -669,6 +688,7 @@ Polymer({
       thisArg: this,
       callback(e) {
         this.toggleHighlightVSync_();
+        this.toggleHighlightPTPSync_();
         e.stopPropagation();
       }
     }));
@@ -694,6 +714,11 @@ Polymer({
   toggleHighlightVSync_() {
     this.highlightVSyncCheckbox_.checked =
         !this.highlightVSyncCheckbox_.checked;
+  },
+
+  toggleHighlightPTPSync_() {
+    this.highlightPTPSyncCheckbox_.checked =
+        !this.highlightPTPSyncCheckbox_.checked;
   },
 
   setFindCtlText(string) {

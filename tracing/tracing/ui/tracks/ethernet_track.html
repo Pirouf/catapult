@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<!--
+###############################################################################
+#
+# Copyright (c) 2020-2022, Intel Corporation
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#  1. Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#
+#  2. Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+#  3. Neither the name of the copyright holder nor the names of its
+#     contributors may be used to endorse or promote products derived from
+#     this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+###############################################################################
+-->
+
+<link rel="import" href="/tracing/ui/base/draw_helpers.html">
+<link rel="import" href="/tracing/ui/tracks/process_memory_dump_track.html">
+<link rel="import" href="/tracing/ui/tracks/ethernet_track_base.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.ui.tracks', function() {
+  const EthernetTrackBase = tr.ui.tracks.EthernetTrackBase;
+
+  /**
+   * @constructor
+   */
+  const EthernetTrack = tr.ui.b.define('process-track', EthernetTrackBase);
+
+  EthernetTrack.prototype = {
+    __proto__: EthernetTrackBase.prototype,
+
+    decorate(viewport) {
+      tr.ui.tracks.EthernetTrackBase.prototype.decorate.call(this, viewport);
+    },
+
+    drawTrack(type) {
+      switch (type) {
+        case tr.ui.tracks.DrawType.INSTANT_EVENT: {
+          if (!this.processBase.instantEvents ||
+              this.processBase.instantEvents.length === 0) {
+            break;
+          }
+          if (!this.viewport_.highlightPTPSync) {
+            break;
+          }
+
+          const ctx = this.context();
+
+          const pixelRatio = window.devicePixelRatio || 1;
+          const bounds = this.getBoundingClientRect();
+          const canvasBounds = ctx.canvas.getBoundingClientRect();
+
+          ctx.save();
+          ctx.translate(0, pixelRatio * (bounds.top - canvasBounds.top));
+
+          const dt = this.viewport.currentDisplayTransform;
+          const viewLWorld = dt.xViewToWorld(0);
+          const viewRWorld = dt.xViewToWorld(canvasBounds.width * pixelRatio);
+
+          tr.ui.b.drawInstantSlicesAsLines(
+              ctx,
+              this.viewport.currentDisplayTransform,
+              viewLWorld,
+              viewRWorld,
+              bounds.height,
+              this.processBase.instantEvents,
+              2);
+
+          ctx.restore();
+
+          break;
+        }
+
+        case tr.ui.tracks.DrawType.BACKGROUND:
+          this.drawBackground_();
+          // Don't bother recursing further, Process is the only level that
+          // draws backgrounds.
+          return;
+      }
+
+      tr.ui.tracks.ContainerTrack.prototype.drawTrack.call(this, type);
+    },
+
+    drawBackground_() {
+      const ctx = this.context();
+      const canvasBounds = ctx.canvas.getBoundingClientRect();
+      const pixelRatio = window.devicePixelRatio || 1;
+      const children = this.children;
+
+      let draw = false;
+      ctx.fillStyle = '#eee';
+      for (let i = 0; i < children.length; ++i) {
+        if (!(children[i] instanceof tr.ui.tracks.Track) ||
+            (children[i] instanceof tr.ui.tracks.SpacingTrack)) {
+          continue;
+        }
+
+        draw = !draw;
+        if (!draw) continue;
+
+        const bounds = children[i].getBoundingClientRect();
+        ctx.fillRect(0, pixelRatio * (bounds.top - canvasBounds.top),
+            ctx.canvas.width, pixelRatio * bounds.height);
+      }
+    },
+
+    // Process maps to processBase because we derive from ProcessTrackBase.
+    set process(process) {
+      this.processBase = process;
+    },
+
+    get process() {
+      return this.processBase;
+    },
+
+    get eventContainer() {
+      return this.process;
+    },
+
+    addContainersToTrackMap(containerToTrackMap) {
+      tr.ui.tracks.ProcessTrackBase.prototype.addContainersToTrackMap.apply(
+          this, arguments);
+      containerToTrackMap.addContainer(this.process, this);
+    },
+
+    addIntersectingEventsInRangeToSelectionInWorldSpace(
+        loWX, hiWX, viewPixWidthWorld, selection) {
+      if (!this.viewport_.highlightPTPSync) return;
+      function onPickHit(instantEvent) {
+        selection.push(instantEvent);
+      }
+      const instantEventWidth = 2 * viewPixWidthWorld;
+      tr.b.iterateOverIntersectingIntervals(this.processBase.instantEvents,
+          function(x) { return x.start; },
+          function(x) { return x.duration + instantEventWidth; },
+          loWX, hiWX,
+          onPickHit.bind(this));
+
+      tr.ui.tracks.ContainerTrack.prototype.
+          addIntersectingEventsInRangeToSelectionInWorldSpace.
+          apply(this, arguments);
+    },
+
+    addClosestEventToSelection(worldX, worldMaxDist, loY, hiY,
+        selection) {
+      this.addClosestInstantEventToSelection(this.processBase.instantEvents,
+          worldX, worldMaxDist, selection);
+      tr.ui.tracks.ContainerTrack.prototype.addClosestEventToSelection.
+          apply(this, arguments);
+    }
+  };
+
+  return {
+    EthernetTrack,
+  };
+});
+
+</script>

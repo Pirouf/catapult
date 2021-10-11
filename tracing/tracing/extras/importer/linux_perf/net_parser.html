@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+<link rel="import" href="/tracing/model/alert.html">
+<link rel="import" href="/tracing/model/event_info.html">
+<link rel="import" href="/tracing/extras/net/ethernet.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses ETH driver events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
+  const Alert = tr.model.Alert;
+  const EventInfo = tr.model.EventInfo;  
+  const Ethernet_ = tr.e.net.Ethernet;
+  const ETHERTYPE = tr.e.net.ETHERTYPE;
+
+  /**
+   * Parses linux ETH trace events.
+   * @constructor
+   */
+  function NetParser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('net_dev_queue',
+        NetParser.prototype.netDevQueueEvent.bind(this));
+    importer.registerEventHandler('net_dev_start_xmit',
+        NetParser.prototype.netDevStartXmitEvent.bind(this));
+    importer.registerEventHandler('net_dev_xmit',
+        NetParser.prototype.netDevXmitEvent.bind(this));
+    importer.registerEventHandler('net_dev_xmit_timeout',
+        NetParser.prototype.netDevXmitTimeoutEvent.bind(this));
+    importer.registerEventHandler('netif_rx_ni_entry',
+        NetParser.prototype.netIfRxEntryEvent.bind(this));
+    importer.registerEventHandler('netif_rx_ni_exit',
+        NetParser.prototype.netIfRxExitEvent.bind(this));
+    importer.registerEventHandler('netif_rx_entry',
+        NetParser.prototype.netIfRxEntryEvent.bind(this));
+    importer.registerEventHandler('netif_rx_exit',
+        NetParser.prototype.netIfRxExitEvent.bind(this));
+
+    importer.registerEventHandler('xdp_driver_start_xmit',
+        NetParser.prototype.xdpDrvStartXmitEvent.bind(this));
+    importer.registerEventHandler('xdp_driver_rx_entry',
+        NetParser.prototype.xdpDrvRxEntryEvent.bind(this));
+
+    this.model_ = importer.model;
+    this.importer_ = importer;
+    this.packetCountPerScopedId = 0;
+    this.priorTrans = {};
+
+  }
+
+  // Matches the <...>-239370  (-------) [001] ....... 251925.173190: net_dev_queue: dev=enp3s0 skbaddr=00000000913018e9 len=68
+  const netDevQueueRE = new RegExp('dev=(.+) skbaddr=([\\da-fA-F]+) len=(\\d+)');
+  // Matches the <...>-239370  (-------) [001] ....2.. 251925.173205: net_dev_start_xmit: dev=enp3s0 queue_mapping=1 skbaddr=00000000913018e9 vlan_tagged=0 vlan_proto=0x0000 vlan_tci=0x0000 protocol=0x88f7 ip_summed=0 len=68 data_len=0 network_offset=14 transport_offset_valid=0 transport_offset=65533 tx_flags=1 gso_size=0 gso_segs=0 gso_type=0x
+  const netDevStartXmitRE = new RegExp(
+      'dev=(.+) queue_mapping=(\\d) skbaddr=([\\da-fA-F]+)' + 
+      ' vlan_tagged=(\\d) vlan_proto=0x([\\da-fA-F]+) vlan_tci=0x([\\da-fA-F]+)' + 
+      ' protocol=0x([\\da-fA-F]+)' + 
+      ' ip_summed=(\\d) len=(\\d+) data_len=(\\d+) network_offset=(\\d+)' + 
+      ' transport_offset_valid=(\\d) transport_offset=(\\d+) tx_flags=(\\d+)' + 
+      ' gso_size=(\\d+) gso_segs=(\\d+) gso_type=0x([\\da-fA-F]+)');
+  // Matches the <...>-239370  (-------) [001] ....2.. 251928.175468: net_dev_xmit: dev=enp3s0 skbaddr=0000000030ffa6cc len=68 rc=0
+  const netDevXmitRE = new RegExp('dev=(.+) skbaddr=([\\da-fA-F]+) len=(\\d+) rc=(\\d)');
+  // Matches the <...>-239370  (-------) [001] ....2.. 251928.175468: net_dev_xmit_timeout: dev=enp3s0 driver=igb queue=1
+  const netDevXmitTimeoutRE = new RegExp('dev=(.+) driver=(.+) queue=(\\d)');
+
+  // Matches the  kworker/0:3-220     (    220) [000] ....... 251925.173963: netif_rx_ni_entry: dev=vnet0 napi_id=0x0 queue_mapping=0 skbaddr=00000000eebb8365 vlan_tagged=0 vlan_proto=0x0000 vlan_tci=0x0000 protocol=0x0800 ip_summed=1 hash=0x00000000 l4_hash=0 len=52 data_len=0 truesize=768 mac_header_valid=1 mac_header=-14 nr_frags=0 gso_size=0 gso_type=0x0
+  const netIfRxEntryRE = new RegExp(
+      'dev=(.+) napi_id=0x([\\da-fA-F]+) queue_mapping=(\\d) skbaddr=([\\da-fA-F]+)' + 
+      ' vlan_tagged=(\\d) vlan_proto=0x([\\da-fA-F]+) vlan_tci=0x([\\da-fA-F]+)' + 
+      ' protocol=0x([\\da-fA-F]+)' + 
+      ' ip_summed=(\\d) hash=0x([\\da-fA-F]+) l4_hash=(\\d) len=(\\d+) data_len=(\\d+) truesize=(\\d+)' + 
+      ' mac_header_valid=(\\d) mac_header=(.+) nr_frags=(\\d)' + 
+      ' gso_size=(\\d+) gso_type=0x([\\da-fA-F]+)');
+  // Matches the kworker/0:3-220     (    220) [000] ....... 251927.352569: netif_rx_ni_exit: ret=0
+  const netIfRxExitRE = /ret=(\d+)/;
+
+  // Matches the <...>-239370  (-------) [001] ....2.. 251928.175468: xdp_driver_xmit: dev=enp3s0 queue_mapping=1 xsk_sock=0000000030ffa6cc flags=0x0
+  const xdpDrvXmitRE = new RegExp(
+      'dev=(.+) queue_mapping=(\\d)' +
+      ' xsk_sock=(.+)' +
+      ' flags=([\\da-fA-F]+)');
+
+  // Matches the <...>-239370  (-------) [001] ....2.. 251928.175468: xdp_driver_rx_entry: dev=enp3s0 queue_mapping=1 xsk_sock=0000000030ffa6cc len=52
+  const xdpDrvRxRE = new RegExp(
+      'dev=(.+) queue_mapping=(\\d)' +
+      ' xsk_sock=(.+) len=(\\d+)' +
+      ' mem_id=(.+) mem_type=(.+)');
+
+  function generateNetArgsForSlice(trans) {
+    const proto = parseInt(trans.protocol, 16);
+    if (proto === ETHERTYPE.VLANQ_ETH) {
+      const tci = tr.e.net.VlanTciToHuman(trans.vlan_tci);
+      return {
+          'type': trans.transaction_type,
+          'ref': trans.transaction_key,
+          'vlan_proto': trans.vlan_proto,
+          'vlan_tci': tci,
+          'protocol': trans.protocol,
+          'len': trans.len,
+          'data_len': trans.data_len,
+          'flags': trans.flags,
+          'calling_tid': trans.calling_pid,
+          'calling_fct': trans.calling_function,
+      };
+    } else if (proto !== 0x0000 ) {
+      return {
+          'type': trans.transaction_type,
+          'ref': trans.transaction_key,
+          'protocol': trans.protocol,
+          'len': trans.len,
+          'data_len': trans.data_len,
+          'flags': trans.flags,
+          'calling_tid': trans.calling_pid,
+          'calling_fct': trans.calling_function,
+      };
+    } else if (trans.transaction_type === 'XDP_TX') {
+      return {
+          'type': trans.transaction_type,
+          'ref': trans.transaction_key,
+          'len': trans.len,
+          'memid': trans.xsk_memid,
+          'memtype': trans.xsk_memtype,
+          'calling_tid': trans.calling_pid,
+          'calling_fct': trans.calling_function,
+      };
+    } else if (trans.transaction_type === 'XDP_RX') {
+      return {
+          'type': trans.transaction_type,
+          'ref': trans.transaction_key,
+          'flags': trans.flags,
+          'calling_tid': trans.calling_pid,
+          'calling_fct': trans.calling_function,
+      };
+    } else {
+      return {
+          'type': trans.transaction_type,
+          'ref': trans.transaction_key,
+          'calling_tid': trans.calling_pid,
+          'calling_fct': trans.calling_function,
+      };
+    }
+  }
+
+  /** @constructor */
+  function NetTransaction(type, key, events, callingPid, callingTs, callingFct) {
+  //netif_rx_ni_entry: dev=vnet0 napi_id=0x0 queue_mapping=0 skbaddr=00000000eebb8365 vlan_tagged=0 vlan_proto=0x0000 vlan_tci=0x0000 protocol=0x0800 ip_summed=1 hash=0x00000000 l4_hash=0 len=52 data_len=0 truesize=768 mac_header_valid=1 mac_header=-14 nr_frags=0 gso_size=0 gso_type=0x0
+  // net_dev_start_xmit: dev=enp3s0 queue_mapping=1 skbaddr=00000000913018e9 vlan_tagged=0 vlan_proto=0x0000 vlan_tci=0x0000 protocol=0x88f7 ip_summed=0 len=68 data_len=0 network_offset=14 transport_offset_valid=0 transport_offset=65533 tx_flags=1 gso_size=0 gso_segs=0 gso_type=0x
+
+    this.transaction_type = type;
+    this.transaction_key = key;
+
+    switch (type) {
+      case 'NET_TX':
+        this.is_vlan_tagged = parseInt(events[4]) === 1;
+        this.vlan_proto = events[5];
+        this.vlan_tci = events[6];
+        this.protocol = events[7];
+        this.is_ptp_transaction = events[7] === ETHERTYPE.PTP_ETH ? true : false;
+        this.is_ip_transaction = parseInt(events[8]) === 1;
+        this.len = parseInt(events[9]);
+        this.data_len = parseInt(events[10]);
+        this.flags = events[14];
+        this.xsk_memid = null;
+        this.xsk_memtype =undefined;
+        break;
+
+      case 'NET_RX':
+        this.is_vlan_tagged = parseInt(events[5]) === 1;
+        this.vlan_proto = events[6];
+        this.vlan_tci = events[7];
+        this.protocol = events[8];
+        this.is_ptp_transaction = (events[8] === ETHERTYPE.PTP_ETH) ? true : false;
+        this.is_ip_transaction = parseInt(events[9]) === 1;
+        this.len = parseInt(events[12]);
+        this.data_len = parseInt(events[13]);
+        this.flags = events[17];
+        this.xsk_memid = null;
+        this.xsk_memtype =undefined;
+        break;
+
+      case 'XDP_TX':
+        this.is_vlan_tagged = false;
+        this.vlan_proto = 0x0000;
+        this.vlan_tci = 0x0000;
+        this.protocol = 0x0000;
+        this.is_ptp_transaction = false;      
+        this.is_ip_transaction = false;
+        this.len = null;
+        this.data_len = null;
+        this.flags = events[4];
+        this.xsk_memid = null;
+        this.xsk_memtype =undefined;
+        break;
+
+      case 'XDP_RX':
+        this.is_vlan_tagged = false;
+        this.vlan_proto = 0x0000;
+        this.vlan_tci = 0x0000;
+        this.protocol = 0x0000;
+        this.is_ptp_transaction = false;      
+        this.is_ip_transaction = false;
+        this.len = events[4];
+        this.data_len = null;
+        this.flags = null;
+        this.xsk_memid = events[4];
+        this.xsk_memtype = events[5];
+        break;
+
+      default:
+        this.is_vlan_tagged = false;
+        this.vlan_proto = 0x0000;
+        this.vlan_tci = 0x0000;
+        this.protocol = 0x0000;
+        this.is_ptp_transaction = false;      
+        this.is_ip_transaction = false;
+        this.len = null;
+        this.data_len = null;
+        this.flags = null;
+        this.xsk_memid = null;
+        this.xsk_memtype = undefined;
+        break;
+    } 
+
+    this.ts = undefined;
+    this.is_reply_transaction = false ;
+    this.calling_pid = callingPid;
+    this.calling_ts = callingTs;
+    this.calling_function = callingFct;
+  }
+
+  NetParser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses SKB events and sets up state in the importer.
+     */
+    netDevQueueEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netDevQueueRE.exec(eventBase.details);
+      if (!event) return false;
+
+      let thread = this.importer_.threadsByLinuxPid[pid];
+      if (thread === undefined ) return false;
+
+      //net_dev_queue: dev=enp3s0 skbaddr=00000000913018e9 len=68
+      const adapterName = event[1];
+      const skbaddr = event[2];
+      const args = {
+        'netdev': adapterName,
+        'addr': skbaddr
+      };
+      this.importer.markNetQueued(ts, adapterName, skbaddr, pid);
+      return true;
+    },
+
+    /**
+     * Parses SKB events and sets up state in the importer.
+     */
+    netDevXmitTimeoutEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netDevXmitTimeoutRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //net_dev_xmit_timeout: dev=enp3s0 driver=igb queue=1
+      const adapterName = event[1];
+      const queuemap = parseInt(event[3]);
+
+      this.importer.markNetTimeout(ts, adapterName, queuemap, pid);
+      const alert =  new Alert(
+          new EventInfo(
+               'Timeout on '+ adapterName + '-TxRx-' + queuemap,
+               'one or several packets were dropped (i.e. not transmitted)'),
+           ts,
+           []);
+      this.model_.alerts.push(alert);
+      return true;
+    },
+
+    /**
+     * Parses SKB events and sets up state in the importer.
+     */
+    netDevXmitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netDevXmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //net_dev_xmit: dev=enp3s0 skbaddr=0000000030ffa6cc len=68 rc=0
+      const adapterName = event[1];
+      const skbaddr = event[2];
+      const len = event[3];
+
+      this.importer.markNetXmit(ts, adapterName, skbaddr, pid);
+      return true;
+    },
+
+    /**
+     * Parses SKB events and sets up state in the importer.
+     */
+    netDevStartXmitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netDevStartXmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //dev=enp3s0 queue_mapping=1 skbaddr=00000000913018e9
+      const adapterName = event[1];
+      const queuemap = parseInt(event[2]);
+      const skbaddr = event[3];
+      const label = 'NET_TX';
+      const dev = this.model_.getOrCreateNetdev(adapterName);
+
+      const objInstName = adapterName+'-TxRx-' + queuemap;
+      const scopeId = { 'scope' : label,'id': parseInt(skbaddr,16)+'.'+queuemap, 'key' : skbaddr, 'queue' : queuemap}
+      
+      let lastInstance = undefined;
+      const instances = dev.objects.getAllInstancesNamed(objInstName);
+      if (instances !== undefined) {
+        const len = instances.length;
+        if (len > 0) {
+          lastInstance = instances[len - 1];
+          if ( (lastInstance.scopedId.scope !== scopeId.scope) || 
+                (lastInstance.scopedId.id !== scopeId.id) )
+            dev.objects.idWasDeleted(lastInstance.scopedId,'net',objInstName,ts);
+        }
+      }
+
+      const trans = new NetTransaction(label, skbaddr, event, pid, ts, eventName);
+      /* Create a snapshot 
+      */
+      const snapshot = dev.objects.addSnapshot(scopeId, 'net', objInstName, ts,
+         generateNetArgsForSlice(trans),objInstName);
+      if (parseInt(trans.protocol, 16) !== ETHERTYPE.VLANQ_ETH)
+        snapshot.objectInstance.colorId = tr.e.net.getColorForNet(trans.protocol);
+      else
+        snapshot.objectInstance.colorId = tr.e.net.getColorForNet(trans.vlan_proto);
+      return true;
+    },
+
+    /**
+     * Parses SKB events and sets up state in the importer.
+     */
+    netIfRxEntryEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netIfRxEntryRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //dev=vnet0 napi_id=0x0 queue_mapping=0 skbaddr=00000000913018e9
+      const adapterName = event[1];
+      const queuemap = parseInt(event[3]);
+      const skbaddr = event[4];
+      const label = 'NET_RX'; 
+      const dev = this.model_.getOrCreateNetdev(adapterName);
+
+      const objInstName = adapterName+'-TxRx-' + queuemap;
+      const scopeId = { 'scope' : label,'id': parseInt(skbaddr,16)+'.'+queuemap, 'key' : skbaddr, 'queue' : queuemap}
+
+      let lastInstance = undefined;
+      const instances = dev.objects.getAllInstancesNamed(objInstName);
+      if (instances !== undefined) {
+        const len = instances.length;
+        if (len > 0) {
+          lastInstance = instances[len - 1];
+          if ( (lastInstance.scopedId.scope !== scopeId.scope) || 
+                (lastInstance.scopedId.id !== scopeId.id) )
+            dev.objects.idWasDeleted(lastInstance.scopedId,'net',objInstName,ts);
+        }
+      }
+
+      const trans = new NetTransaction(label, skbaddr, event, pid, ts, eventName.substring(6));
+      /* Create a snapshot 
+      */
+      const snapshot = dev.objects.addSnapshot(scopeId, 'net', objInstName, ts,
+        generateNetArgsForSlice(trans),objInstName);
+      if (parseInt(trans.protocol, 16) !== ETHERTYPE.VLANQ_ETH)
+        snapshot.objectInstance.colorId = tr.e.net.getColorForNet(trans.protocol);
+      else
+        snapshot.objectInstance.colorId = tr.e.net.getColorForNet(trans.vlan_proto);
+      return true;
+    },
+
+    netIfRxExitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = netIfRxExitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //this.importer.markNetRecv(ts, adapterName, sockaddr, pid);
+      return true;
+    },
+
+
+    /**
+     * Parses XDP events and sets up state in the importer.
+     */
+    xdpDrvXmitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xdpDrvXmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //dev=enp3s0 queue_mapping=1 xsk_sock=00000000913018e9 xsk_umem=00000000913018e9
+      const adapterName = event[1];
+      const queuemap = parseInt(event[2]);
+      const sockaddr = event[3];
+      const label = 'XDP_RX';
+      const dev = this.model_.getOrCreateNetdev(adapterName);
+      const objInstName = adapterName+'-TxRx-' + queuemap;
+      const scopeId = { 'scope' : label,'id': parseInt(sockaddr,16), 'key' : sockaddr, 'queue' : queuemap} 
+
+      const trans = new NetTransaction(label, sockaddr, event, pid, ts, eventName);
+      if (!this.priorTrans[sockaddr]) {
+        //take a first snapshot 
+        const snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, trans.calling_ts, generateNetArgsForSlice(trans), objInstName);
+        snapshot.objectInstance.colorId = tr.b.ColorScheme.getColorIdForReservedName('black');
+        snapshot.objectInstance.creationTsWasExplicit = true;
+        snapshot.objectInstance.creationTs = trans.calling_ts;
+        this.priorTrans[sockaddr] = trans;
+        return true;
+      }
+
+      const duration = tr.b.convertUnit(ts - this.priorTrans[sockaddr].calling_ts,
+        tr.b.UnitPrefixScale.METRIC.MILLI,
+        tr.b.UnitPrefixScale.METRIC.NANO);
+      if (!duration) {
+        this.priorTrans[sockaddr] = trans;
+        return true;
+      }
+
+      const queueCounter = dev.getOrCreateCounter(null, objInstName);
+      if (!queueCounter.numSeries) {
+        //
+        const serie = new tr.model.CounterSeries(label,
+            tr.b.ColorScheme.getColorIdForReservedName('black'));
+        serie.addCounterSample(ts, duration);
+        queueCounter.addSeries(serie);
+        return true;
+      }
+
+      const lastTrans = this.priorTrans[sockaddr];
+      const local_importer = this.importer; 
+      queueCounter.series.forEach(function(series) {
+        
+        const len = series.length;
+        let lastSampleDuration = 0;
+        let lastSampleTs = undefined;
+
+        if (series.name === label) {
+
+          if (len > 0) {
+
+            lastSampleDuration = series.getSample(len-1).value;
+            lastSampleTs = series.getTimestamp(len-1);
+
+            series.addCounterSample(ts, duration);
+            const e = lastSampleDuration - duration;
+            // ignore sample if +/- 3us injection time
+            if ( Math.abs(e) < 3000 ) {
+              this.packetCountPerScopedId++;
+              return;
+            } else if ( e > 0 ) {
+              this.packetCountPerScopedId++;
+              return;
+            }
+          }
+
+          let snapshot = undefined;
+          const instances = dev.objects.getAllInstancesNamed(objInstName);
+          
+          if (!instances ||
+              !instances.length || 
+              !lastSampleTs) return;
+
+          const blackColorId = tr.b.ColorScheme.getColorIdForReservedName('black');
+          const lenInstances = instances.length;
+          const lastInstance = instances[lenInstances - 1];
+          const lastSnapshot = lastInstance.snapshots[lastInstance.snapshots.length - 1];
+
+          if ( lastSnapshot.ts === lastTrans.calling_ts && 
+               lastSnapshot.ts !== ts) {
+            /*
+            *  There is a long pause/timeout after prior paused/timedout transaction
+            */
+            local_importer.markNetTimeout(lastTrans.calling_ts+0.001, adapterName, queuemap, pid);
+
+            lastSnapshot.objectInstance.deletionTs = lastTrans.calling_ts;
+            lastSnapshot.objectInstance.deletionTsWasExplicit = true;
+
+            this.packetCountPerScopedId=1;
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, ts, generateNetArgsForSlice(trans), objInstName);
+            snapshot.args['cycles'] = this.packetCountPerScopedId;
+            snapshot.args['pps'] = undefined;
+            snapshot.objectInstance.creationTs = ts;
+            snapshot.objectInstance.creationTsWasExplicswit = true;
+            snapshot.objectInstance.colorId = blackColorId;
+
+          } else if ( lastSnapshot.ts !== ts ) {
+            /* 
+            *  There is a long pause/timeout after recursive XDP transaction
+            */
+            local_importer.markNetTimeout(lastTrans.calling_ts+0.001, adapterName, queuemap, pid);
+
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, lastTrans.calling_ts, generateNetArgsForSlice(lastTrans), objInstName);
+            snapshot.args['cycles'] = 1;
+            snapshot.args['pps'] = undefined;
+            snapshot.objectInstance.colorId = blackColorId;
+            snapshot.objectInstance.deletionTsWasExplicit = true;
+            snapshot.objectInstance.deletionTs = lastTrans.calling_ts;
+
+            const sec = tr.b.convertUnit(snapshot.objectInstance.deletionTs - snapshot.objectInstance.creationTs, tr.b.UnitPrefixScale.METRIC.NANO,
+                  tr.b.UnitPrefixScale.METRIC.NONE);
+
+            let writeBandwidthInPps = this.packetCountPerScopedId / sec;
+            writeBandwidthInPps = Math.floor(tr.b.convertUnit(writeBandwidthInPps,
+                  tr.b.UnitPrefixScale.BINARY.NONE,
+                  tr.b.UnitPrefixScale.BINARY.MEBI));
+
+            if (!isNaN(writeBandwidthInPps) && 
+              (this.packetCountPerScopedId > 0)) {
+              snapshot.args = generateNetArgsForSlice(trans); 
+              snapshot.args['cycles'] = this.packetCountPerScopedId;
+              snapshot.args['pps'] = writeBandwidthInPps;
+            }
+
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, ts, generateNetArgsForSlice(trans), objInstName);
+            snapshot.objectInstance.creationTs = ts;
+            snapshot.objectInstance.creationTsWasExplicit = true;
+            snapshot.objectInstance.colorId = blackColorId;
+            this.packetCountPerScopedId=1;
+
+          }  
+        }
+      });
+
+      this.priorTrans[sockaddr] = trans;
+      return true;
+    },
+
+    /**
+     * Parses XDP events and sets up state in the importer.
+     */
+    xdpDrvRxEntryEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xdpDrvRxRE.exec(eventBase.details);
+      if (!event) return false;
+
+      return true;
+    },
+
+    /**
+     * Parses XDP events and sets up state in the importer.
+     */
+    xdpDrvStartXmitEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xdpDrvXmitRE.exec(eventBase.details);
+      if (!event) return false;
+
+      //dev=enp3s0 queue_mapping=1 xsk_sock=00000000913018e9 xsk_umem=00000000913018e9
+      const adapterName = event[1];
+      const queuemap = parseInt(event[2]);
+      const sockaddr = event[3];
+      const label = 'XDP_TX';
+      const dev = this.model_.getOrCreateNetdev(adapterName);
+      const objInstName = adapterName+'-TxRx-' + queuemap;
+      const scopeId = { 'scope' : label,'id': parseInt(sockaddr,16), 'key' : sockaddr, 'queue' : queuemap} 
+
+      const trans = new NetTransaction(label, sockaddr, event, pid, ts, eventName);
+      if (!this.priorTrans[sockaddr]) {
+        //take a first snapshot 
+        const snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, trans.calling_ts, generateNetArgsForSlice(trans), objInstName);
+        snapshot.objectInstance.colorId = tr.b.ColorScheme.getColorIdForReservedName('black');
+        snapshot.objectInstance.creationTsWasExplicit = true;
+        snapshot.objectInstance.creationTs = trans.calling_ts;
+        this.priorTrans[sockaddr] = trans;
+        return true;
+      }
+
+      const duration = tr.b.convertUnit(ts - this.priorTrans[sockaddr].calling_ts,
+        tr.b.UnitPrefixScale.METRIC.MILLI,
+        tr.b.UnitPrefixScale.METRIC.NANO);
+      if (!duration) {
+        this.priorTrans[sockaddr] = trans;
+        return true;
+      }
+
+      const queueCounter = dev.getOrCreateCounter(null, objInstName);
+      if (!queueCounter.numSeries) {
+        //
+        const serie = new tr.model.CounterSeries(label,
+            tr.b.ColorScheme.getColorIdForReservedName('black'));
+        serie.addCounterSample(ts, duration);
+        queueCounter.addSeries(serie);
+        return true;
+      }
+
+      const lastTrans = this.priorTrans[sockaddr];
+      const local_importer = this.importer; 
+      queueCounter.series.forEach(function(series) {
+        
+        const len = series.length;
+        let lastSampleDuration = 0;
+        let lastSampleTs = undefined;
+
+        if (series.name === label) {
+
+          if (len > 0) {
+
+            lastSampleDuration = series.getSample(len-1).value;
+            lastSampleTs = series.getTimestamp(len-1);
+
+            series.addCounterSample(ts, duration);
+            const e = lastSampleDuration - duration;
+            // ignore sample if +/- 3us injection time
+            if ( Math.abs(e) < 3000 ) {
+              this.packetCountPerScopedId++;
+              return;
+            } else if ( e > 0 ) {
+              this.packetCountPerScopedId++;
+              return;
+            }
+          }
+
+          let snapshot = undefined;
+          const instances = dev.objects.getAllInstancesNamed(objInstName);
+          
+          if (!instances ||
+              !instances.length || 
+              !lastSampleTs) return;
+
+          const blackColorId = tr.b.ColorScheme.getColorIdForReservedName('black');
+          const lenInstances = instances.length;
+          const lastInstance = instances[lenInstances - 1];
+          const lastSnapshot = lastInstance.snapshots[lastInstance.snapshots.length - 1];
+
+          if ( lastSnapshot.ts === lastTrans.calling_ts && 
+               lastSnapshot.ts !== ts) {
+            /*
+            *  There is a long pause/timeout after prior paused/timedout transaction
+            */
+            local_importer.markNetTimeout(lastTrans.calling_ts+0.001, adapterName, queuemap, pid);
+
+            lastSnapshot.objectInstance.deletionTs = lastTrans.calling_ts;
+            lastSnapshot.objectInstance.deletionTsWasExplicit = true;
+
+            this.packetCountPerScopedId=1;
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, ts, generateNetArgsForSlice(trans), objInstName);
+            snapshot.args['cycles'] = this.packetCountPerScopedId;
+            snapshot.args['pps'] = undefined;
+            snapshot.objectInstance.creationTs = ts;
+            snapshot.objectInstance.creationTsWasExplicswit = true;
+            snapshot.objectInstance.colorId = blackColorId;
+
+          } else if ( lastSnapshot.ts !== ts ) {
+            /* 
+            *  There is a long pause/timeout after recursive XDP transaction
+            */
+            local_importer.markNetTimeout(lastTrans.calling_ts+0.001, adapterName, queuemap, pid);
+
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, lastTrans.calling_ts, generateNetArgsForSlice(lastTrans), objInstName);
+            snapshot.args['cycles'] = 1;
+            snapshot.args['pps'] = undefined;
+            snapshot.objectInstance.colorId = blackColorId;
+            snapshot.objectInstance.deletionTsWasExplicit = true;
+            snapshot.objectInstance.deletionTs = lastTrans.calling_ts;
+
+            const sec = tr.b.convertUnit(snapshot.objectInstance.deletionTs - snapshot.objectInstance.creationTs, tr.b.UnitPrefixScale.METRIC.NANO,
+                  tr.b.UnitPrefixScale.METRIC.NONE);
+
+            let writeBandwidthInPps = this.packetCountPerScopedId / sec;
+            writeBandwidthInPps = Math.floor(tr.b.convertUnit(writeBandwidthInPps,
+                  tr.b.UnitPrefixScale.BINARY.NONE,
+                  tr.b.UnitPrefixScale.BINARY.MEBI));
+
+            if (!isNaN(writeBandwidthInPps) && 
+              (this.packetCountPerScopedId > 0)) {
+              snapshot.args = generateNetArgsForSlice(trans); 
+              snapshot.args['cycles'] = this.packetCountPerScopedId;
+              snapshot.args['pps'] = writeBandwidthInPps;
+            }
+
+            snapshot = dev.objects.addSnapshot(
+                    scopeId, 'net', objInstName, ts, generateNetArgsForSlice(trans), objInstName);
+            snapshot.objectInstance.creationTs = ts;
+            snapshot.objectInstance.creationTsWasExplicit = true;
+            snapshot.objectInstance.colorId = blackColorId;
+            this.packetCountPerScopedId=1;
+
+          }  
+        }
+      });
+
+      this.priorTrans[sockaddr] = trans;
+      return true;
+    },
+
+  };
+
+  Parser.register(NetParser);
+
+  return {
+    NetParser,
+  };
+});
+
+</script>

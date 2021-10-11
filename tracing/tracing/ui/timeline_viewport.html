@@ -94,6 +94,7 @@ tr.exportTo('tr.ui', function() {
 
     // Highlights.
     this.highlightVSync_ = false;
+    this.highlightPTPSync_ = true;
 
     // High details.
     this.highDetails_ = false;
@@ -248,6 +249,15 @@ tr.exportTo('tr.ui', function() {
 
     set highlightVSync(highlightVSync) {
       this.highlightVSync_ = highlightVSync;
+      this.dispatchChangeEvent();
+    },
+
+    get highlightPTPSync() {
+      return this.highlightPTPSync_;
+    },
+
+    set highlightPTPSync(highlightPTPSync) {
+      this.highlightPTPSync_ = highlightPTPSync;
       this.dispatchChangeEvent();
     },
 

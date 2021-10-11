@@ -6,16 +6,19 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+<link rel="import" href="/tracing/extras/net/ethernet.html">
 
 <script>
 'use strict';
 
 /**
- * @fileoverview Parses drm driver events in the Linux event trace format.
+ * @fileoverview Parses interrupt events in the Linux event trace format.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
   const ColorScheme = tr.b.ColorScheme;
   const Parser = tr.e.importer.linux_perf.Parser;
+  const vnetIrqHandlerRE = tr.e.net.vnetIrqHandlerRE;
+  const ethIrqHandlerRE = tr.e.net.ethIrqHandlerRE;
 
   /**
    * Parses linux irq trace events.
@@ -117,7 +120,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             '',
             'IRQ (' + irq +'-'+ thread.irqName + ')',
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
-            thread.lastEntryTs, { ret },
+            thread.lastEntryTs, { ret ,  'pid' : pid },
             duration);
         thread.thread.sliceGroup.pushSlice(slice);
 
@@ -128,6 +131,20 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         for (const i in irqThreads_) {
 
           irqThreads_[i].irqExitTs = ts;
+        }
+
+        const vnetHandler = vnetIrqHandlerRE.exec(thread.irqName);
+        const ethHandler = ethIrqHandlerRE.exec(thread.irqName);
+        if (ethHandler) {
+          // irq handler call from physical Ethernet controller eth/enpXsY interface
+          const adapterName = ethHandler[1];
+          const queuemap = ethHandler[2];
+          this.importer.markNetIrq(thread.lastEntryTs, cpuNumber, pid, ts - thread.lastEntryTs, adapterName, parseInt(queuemap), irq +'-'+ thread.irqName.substring(0,7));
+        } else  if (vnetHandler) {
+          // irq handler call Virtual Ethernet vnet interface
+          const adapterName = vnetHandler[1];
+          const queuemap = 0;
+          this.importer.markNetIrq(thread.lastEntryTs, cpuNumber, pid, ts - thread.lastEntryTs, adapterName+queuemap, parseInt(queuemap), irq +'-'+ thread.irqName.substring(0,7));
         }
 
         thread.lastEntryTs = undefined;
@@ -147,13 +164,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const action = event[2];
 
-      const storedThread = this.importer.threadsByLinuxPid[pid];
-      if (!storedThread) return false;
+      const kthread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
 
-      const kthread = this.importer.kernelThreadStates_[storedThread.name];
-      if (!kthread) return false;
-
-      kthread.lastEntryTs = ts;
+      kthread.lastSoftirqEntryTs = ts;
 
       return true;
     },
@@ -162,26 +176,36 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const event = softirqRE.exec(eventBase.details);
       if (!event) return false;
 
-      const storedThread = this.importer.threadsByLinuxPid[pid];
-      if (!storedThread) return false;
-
-      const kthread = this.importer.kernelThreadStates_[storedThread.name];
-      if (!kthread) return false;
-
       const vec = parseInt(event[1]);
       const action = event[2];
 
-      if (kthread.lastEntryTs !== undefined) {
-        const duration = ts - kthread.lastEntryTs;
+      const kthread = this.importer.getOrCreateKernelThread(
+          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
+
+      const args = {
+        'vec' : vec,
+        'pid' : pid
+      };
+
+      if (kthread.lastSoftirqEntryTs !== undefined) {
+        const duration = ts - kthread.lastSoftirqEntryTs;
         const slice = new tr.model.CpuSlice(
             '', action,
             ColorScheme.getColorIdForGeneralPurposeString(event[1]),
-            kthread.lastEntryTs, { vec },
+            kthread.lastSoftirqEntryTs, args,
             duration);
         kthread.thread.sliceGroup.pushSlice(slice);
+
+        /**/
+        if (action === 'NET_TX' )
+          this.importer.markNetTxIrq(kthread.lastSoftirqEntryTs, cpuNumber, pid, duration);
+        else if (action === 'NET_RX' && pid > 0 )
+          this.importer.markNetRxIrq(kthread.lastSoftirqEntryTs, cpuNumber, pid, duration);
+
       }
 
-      kthread.lastEntryTs = undefined;
+
+      kthread.lastSoftirqEntryTs = undefined;
       return true;
     },
     /**
