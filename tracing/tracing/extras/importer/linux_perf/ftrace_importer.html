@@ -1308,7 +1308,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             }
           };
 
-          if (prevSlice.args.stateWhenDescheduled === 'S') {
+          if (prevSlice.args.stateWhenDescheduled === 'S' ||
+              prevSlice.args.stateWhenDescheduled === 'I' ||
+              prevSlice.args.stateWhenDescheduled === 'P') {
             pushSleep(SCHEDULING_STATE.SLEEPING);
           } else if (prevSlice.args.stateWhenDescheduled === 'S|0x1000') {
             pushSleep(SCHEDULING_STATE.SLEEPING_XNSHADOW);
