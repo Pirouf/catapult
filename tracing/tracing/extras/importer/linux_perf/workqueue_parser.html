@@ -34,6 +34,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         WorkqueueParser.prototype.executeActivateWork.bind(this));
   }
 
+  this.kworkerlookup = {};
+
   // Matches the workqueue_execute_start record
   //  workqueue_execute_start: work struct c7a8a89c: function MISRWrapper
   const workqueueExecuteStartRE = /work struct (.+): function (\S+)/;
@@ -47,6 +49,20 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   WorkqueueParser.prototype = {
     __proto__: Parser.prototype,
 
+    struct2task(structid) {
+      return this.kworkerlookup[structid];
+    },
+
+    registerWorkertask(structid, taskname, tid, ts) {
+      if (this.kworkerlookup === undefined) this.kworkerlookup = {};
+      if (this.struct2task(structid) === undefined)
+        this.kworkerlookup[structid] = {'tid': tid, 'ts': ts, 'task': taskname};
+    },
+
+    unregisterWorkertask(structid) {
+      delete this.kworkerlookup[structid];
+    },
+
     /**
      * Parses workqueue events and sets up state in the importer.
      */
@@ -56,6 +72,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const kthread = this.importer.getOrCreateKernelThread(
             unknownThreadName, "kworkers" , pid);
+
+      this.registerWorkertask(event[1],event[2],pid,ts);
 
       kthread.openSliceTS = ts;
       kthread.openSlice = event[2];
@@ -70,12 +88,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const kthread = this.importer.getOrCreateKernelThread(
           unknownThreadName, "kworkers" , pid);
 
-      if (kthread.openSlice) {
-        const slice = new tr.model.CpuSlice('', kthread.openSlice,
-            ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
-            kthread.openSliceTS,
-            {},
-            ts - kthread.openSliceTS);
+      const wq = this.struct2task(event[1]);
+      if (wq) {
+        this.unregisterWorkertask(event[1]);
+        const slice = new tr.model.CpuSlice('', wq.task,
+            ColorScheme.getColorIdForGeneralPurposeString(wq.task),
+            wq.ts,
+            { 'struct': event[1] },
+            ts - wq.ts);
         kthread.thread.sliceGroup.pushSlice(slice);
       }
 
