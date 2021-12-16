@@ -49,14 +49,17 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const eventData = funcEnterRE.exec(eventBase.details);
       if (!eventData) return false;
 
-      if (eventBase.tgid === undefined) {
-        return false;
+      const name = eventData[1];
+
+      let thread = this.importer.threadsByLinuxPid[pid];
+      if (!thread && eventBase.tgid) {
+        const tgid = parseInt(eventBase.tgid);
+        thread = this.model_.getOrCreateProcess(tgid)
+          .getOrCreateThread(pid);
+      } else if (!thread) {
+        thread = this.model_.getOrCreatePseudoThread(eventBase.threadName);
       }
 
-      const tgid = parseInt(eventBase.tgid);
-      const name = eventData[1];
-      const thread = this.model_.getOrCreateProcess(tgid)
-          .getOrCreateThread(pid);
       thread.name = eventBase.threadName;
 
       const slices = thread.kernelSliceGroup;
@@ -75,13 +78,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     traceKernelFuncReturnEvent(eventName, cpuNumber, pid, ts,
         eventBase) {
-      if (eventBase.tgid === undefined) {
-        return false;
+
+      let thread = this.importer.threadsByLinuxPid[pid];
+      if (!thread && eventBase.tgid) {
+        const tgid = parseInt(eventBase.tgid);
+        thread = this.model_.getOrCreateProcess(tgid)
+          .getOrCreateThread(pid);
+      } else if (!thread) {
+        thread = this.model_.getOrCreatePseudoThread(eventBase.threadName);
       }
 
-      const tgid = parseInt(eventBase.tgid);
-      const thread = this.model_.getOrCreateProcess(tgid)
-          .getOrCreateThread(pid);
       thread.name = eventBase.threadName;
 
       const slices = thread.kernelSliceGroup;
