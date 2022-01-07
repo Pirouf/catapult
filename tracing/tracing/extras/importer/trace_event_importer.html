@@ -1391,7 +1391,8 @@ tr.exportTo('tr.e.importer', function() {
             rawStackFrame.category : rawStackFrame.name;
           const node = this.stackFrameTree_.add(new ProfileNodeType(
               'g' + id, {
-                functionName: rawStackFrame.name
+                functionName: rawStackFrame.name,
+                url: rawStackFrame.category
               }, undefined));
           node.colorId =
             ColorScheme.getColorIdForGeneralPurposeString(textForColor);
