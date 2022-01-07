@@ -189,7 +189,7 @@ tr.exportTo('tr.e.importer', function() {
 
     // For old Chrome traces with no clock domain metadata, just use a
     // placeholder clock domain.
-    this.clockDomainId_ = tr.model.ClockDomainId.UNKNOWN_CHROME_LEGACY;
+    this.clockDomainId_ = tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL;
     // A function able to transform timestamps in |clockDomainId| to timestamps
     // in the model clock domain.
     this.toModelTime_ = undefined;
@@ -1391,7 +1391,8 @@ tr.exportTo('tr.e.importer', function() {
             rawStackFrame.category : rawStackFrame.name;
           const node = this.stackFrameTree_.add(new ProfileNodeType(
               'g' + id, {
-                functionName: rawStackFrame.name
+                functionName: rawStackFrame.name,
+                url: rawStackFrame.category
               }, undefined));
           node.colorId =
             ColorScheme.getColorIdForGeneralPurposeString(textForColor);
