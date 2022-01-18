@@ -1174,7 +1174,15 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     storeStackFrames_(stackFrames) {
-      this.stackFrameEvents_ = stackFrames;
+      if ( stackFrames[1] !== undefined )
+        this.stackFrameEvents_ = stackFrames;
+      else
+        this.stackFrameEvents_ = {
+          1: {
+              "name": "[UNKNOWN]:unknown",
+              "category": "[UNKNOWN]",
+             }
+          };
       return oboe.drop;
     },
 
