@@ -82,6 +82,20 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           });
     },
 
+    getFunctions() {
+      return beginXhr('GET', '/json/functions').then(
+        function(json) {
+            return JSON.parse(json);
+          });
+    },
+
+    getTriggers() {
+      return beginXhr('GET', '/json/triggers').then(
+        function(json) {
+            return JSON.parse(json);
+          });
+    },
+
     beginRecording(recordingOptions) {
       const recordingOptionsB64 = Base64.btoa(JSON.stringify(recordingOptions));
       return beginXhr('GET', '/json/begin_recording?' +

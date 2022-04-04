@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+<link rel="import" href="/tracing/core/filter.html">
+<link rel="import" href="/tracing/ui/base/dom_helpers.html">
+<link rel="import" href="/tracing/ui/base/info_bar_group.html">
+<link rel="import" href="/tracing/ui/base/overlay.html">
+<link rel="import" href="/tracing/ui/base/utils.html">
+
+<template id="record-selection-dialog-template">
+  <style>
+  .categories-column-view {
+    display: flex;
+    flex-direction: column;
+    font-family: sans-serif;
+    max-width: 900px;
+    min-height: 0;
+    min-width: 0;
+    opacity: 1;
+    transition: max-height 1s ease, max-width 1s ease, opacity 1s ease;
+    will-change: opacity;
+  }
+
+  .categories-column-view-hidden {
+    max-height: 0;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    display: none;
+  }
+
+  .categories-selection {
+    display: flex;
+    flex-direction: row;
+  }
+
+  .category-presets {
+    padding: 4px;
+  }
+
+  .category-description {
+    color: #aaa;
+    font-size: small;
+    max-height: 1em;
+    max-width: 1080px;
+    opacity: 1;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: right;
+    transition: max-height 1s ease, max-width 1s ease, opacity 1s ease;
+    will-change: opacity;
+  }
+
+  .category-description-hidden {
+    max-height: 0;
+    opacity: 0;
+  }
+
+  .default-enabled-event-categories,
+  .default-enabled-perf-categories,
+  .default-enabled-function-categories {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    width: 300px;
+  }
+
+  .default-enabled-event-categories > div,
+  .default-enabled-perf-categories > div,
+  .default-enabled-function-categories > div {
+    padding: 4px;
+  }
+
+  .default-enabled-function-categories-hidden {
+    max-height: 0;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    display: none;
+  }
+
+  .default-enabled-perf-categories .labeled-option-group-perf {
+    flex: 1 1 auto;
+    flex-direction: column;
+    display: flex;
+  }
+
+  .default-enabled-perf-categories .labeled-option-perf {
+    border-top: 5px solid white;
+    border-bottom: 5px solid white;
+  }
+
+  .tracing-modes {
+    display: flex;
+    flex-direction: row;
+  }
+
+  .tracing-select {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    border-bottom: 2px solid #ddd;
+    border-top: 2px solid #ddd;
+  }
+
+  .options {
+    flex: 1 0 auto;
+    flex-direction: column;    
+    padding: 4px;
+  }
+
+  .option {
+    display: flex;
+    padding: 4px;
+    font-size: 80%;
+    opacity: 1;
+    will-change: opacity;  
+  }
+
+  .option-hidden,
+  .option-undefined
+  {
+    opacity: 0;
+    display: none;
+  }
+ 
+  
+  .default-enabled-function-categories,
+  .default-enabled-perf-categories {
+    border-left: 2px solid #ddd;
+  }
+
+
+  
+  .warning-default-enabled-function-categories,
+  .warning-default-enabled-tracing-categories,
+  .warning-default-enabled-perf-categories {
+    display: inline-block;
+    font-weight: bold;
+    text-align: center;
+    color: #BD2E2E;
+    width: 2.0ex;
+    height: 2.0ex;
+    border-radius: 2.0ex;
+    border: 1px solid #BD2E2E;
+  }
+
+  .categories {
+    font-size: 80%;
+    padding: 10px;
+    flex: 1 1 auto;
+  }
+
+  .group-selectors {
+    font-size: 80%;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 6px;
+    flex: 0 0 auto;
+  }
+
+  .group-selectors button {
+    padding: 1px;
+  }
+
+  .record-selection-dialog .labeled-option-group {
+    flex: 0 0 auto;
+    flex-direction: column;
+    display: flex;
+  }
+
+  .record-selection-dialog .labeled-option {
+    border-top: 5px solid white;
+    border-bottom: 5px solid white;
+  }
+
+  .record-selection-dialog .edit-categories {
+    padding-left: 6px;
+  }
+
+  .record-selection-dialog .edit-categories:after {
+    padding-left: 15px;
+    font-size: 125%;
+  }
+  
+  .record-selection-dialog .labeled-option-group:not(.categories-expanded)
+      .edit-categories:after {
+    content: '\25B8'; /* Right triangle */
+  }
+
+  .record-selection-dialog .labeled-option-group.categories-hidden 
+      .edit-categories:after {
+    content: '\25B8'; /* Right triangle */
+  }
+
+  .record-selection-dialog .labeled-option-group.categories-expanded 
+      .edit-categories:after {
+    content: '\25BE'; /* Down triangle */
+  }
+
+  </style>
+
+  <div class="record-selection-dialog">
+    <tr-ui-b-info-bar-group></tr-ui-b-info-bar-group>
+    <div class="category-presets">
+    </div>
+    <div class="category-description"></div>
+    <div class="categories-column-view">
+      <div class="tracing-modes">
+        <div class="tracing-select">Modes:</div>
+        <div class="options">Options:</div>
+      </div>
+      <div class="categories-selection">
+        <div class="default-enabled-event-categories">
+          <div>Trace&nbsp;Events&nbsp;Categories
+              <a class="warning-default-enabled-tracing-categories">!</a>
+          </div>
+          <div class="group-selectors">
+            Select
+            <button class="none-btn">None</button>
+          </div>
+          <div class="categories"></div>
+        </div>
+        <div class="default-enabled-function-categories">
+          <div>Functions&nbsp;Call&nbsp;Categories
+            <a class="warning-default-enabled-function-categories">!</a>
+          </div>
+          <div class="group-selectors">
+            Select
+            <button class="none-btn">None</button>
+          </div>
+          <div class="categories"></div>
+        </div>
+        <div class="default-enabled-perf-categories">
+          <div>Perf&nbsp;Events&nbsp;Categories
+            <a class="warning-default-enabled-perf-categories">!</a>
+          </div>
+          <div class="group-selectors">
+          Callstack:
+          </div>
+          <div class="categories"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview RecordSelectionDialog presents the available categories
+ * to be enabled/disabled during tr.c.
+ */
+tr.exportTo('tr.ui.e.about_tracing', function() {
+  const THIS_DOC = document.currentScript.ownerDocument;
+  const RecordSelectionDialogRt = tr.ui.b.define('div');
+  const categories_ = [];
+  const functions_ = [];
+  const triggers_ = [];
+
+  function createEditCategorySpan(optionGroupEl, targetEl) {
+    const spanEl = tr.ui.b.createSpan({className: 'edit-categories'});
+    Polymer.dom(spanEl).textContent = 'Edit categories';
+    Polymer.dom(spanEl).classList.add('labeled-option');
+
+    spanEl.addEventListener('click', function() {
+      targetEl.onClickEditCategories();
+    });
+    return spanEl;
+  }
+
+  function valuesEqual(a, b) {
+    if (a instanceof Array && b instanceof Array) {
+      return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
+    }
+    return a === b;
+  }
+
+  function FindCategoriesPreset(CategoryFilter) {
+      // Dedup the categories from regExp 
+      // returned when we query the category list.
+      const categorySet = [];
+      const categoryRELength = CategoryFilter.length;
+      if (categoryRELength > 0 && tr.ui.e.about_tracing.categories_ ) {
+        const allCategoriesLength = tr.ui.e.about_tracing.categories_.length;
+        for (let i = 0; i < allCategoriesLength; ++i) {
+          for (let j = 0; j < categoryRELength; ++j) {
+            if (CategoryFilter[j].exec(tr.ui.e.about_tracing.categories_[i]))
+              categorySet.push(tr.ui.e.about_tracing.categories_[i]);
+          }
+        }
+      }
+      return categorySet;
+  }
+
+  function isCategoriesPresetAvailable(CategoryFilter) {
+      // Dedup the categories from regExp 
+      // returned when we query the category list.
+      const categoryCount = 0;
+      const categoryRELength = CategoryFilter.length;
+      if (categoryRELength > 0 && tr.ui.e.about_tracing.categories_ ) {
+        const allCategoriesLength = tr.ui.e.about_tracing.categories_.length;
+        for (let j = 0; j < categoryRELength; ++j) {
+          let categoryCount = 0;
+          for (let i = 0; i < allCategoriesLength; ++i) {
+            if (CategoryFilter[j].exec(tr.ui.e.about_tracing.categories_[i]))
+            categoryCount++;
+          }
+          if (categoryCount === 0) return false;
+        }
+      }
+      return true;
+  }
+
+  function createOptionGroup(targetEl, targetElProperty,
+      settingsKey, defaultValue, initialMode, initialOption, initialFunction, 
+      items) {
+    function onChange() {
+      let value = [];
+      let options = [];
+      let functions = [];
+      if (this.value.length) {
+        value = this.value.split(',');
+        //value = this.value;
+      }
+      if (this.attributes.option.nodeValue != "undefined" ) {
+        options = this.attributes.option.nodeValue.split(',');
+      }
+      if (this.attributes.function.nodeValue != "undefined" ) {
+        functions = this.attributes.function.nodeValue.split(',');
+      }
+      const mode = this.attributes.mode.nodeValue;
+      const preset = { 'value': value, 
+                       'mode': mode,
+                       'options': options,
+                       'functions': functions,
+                      }
+      tr.b.Settings.set(settingsKey, value);
+      targetEl[targetElProperty] = preset;
+    }
+
+    const optionGroupEl = tr.ui.b.createSpan({className: 'labeled-option-group'});
+    const initialValue = FindCategoriesPreset(defaultValue);
+    const preset = { 'value': initialValue, 
+                      'mode': initialMode,
+                      'options': initialOption,
+                      'functions': initialFunction,
+                    }
+    for (let i = 0; i < items.length; ++i) {
+      const item = items[i];
+      const id = 'category-preset-' + item.label.replace(/ /g, '-');
+      const presetValue = FindCategoriesPreset(item.value);
+
+      const radioEl = document.createElement('input');
+      radioEl.type = 'radio';
+      Polymer.dom(radioEl).setAttribute('id', id);
+      Polymer.dom(radioEl).setAttribute('name', 'category-presets-group');
+      Polymer.dom(radioEl).setAttribute('value', presetValue);
+      Polymer.dom(radioEl).setAttribute('option', item.option);
+      Polymer.dom(radioEl).setAttribute('function', item.function);
+      Polymer.dom(radioEl).setAttribute('mode', item.mode);
+
+      if (!isCategoriesPresetAvailable(item.value)) {
+        // condition to gray-out Radiobutton without a full-match
+        radioEl.disabled = true;
+        radioEl.checked = false;
+      } else {
+
+        radioEl.addEventListener('change', onChange.bind(radioEl, targetEl,
+          targetElProperty,
+          settingsKey));
+      
+        if (valuesEqual(initialValue, presetValue)) {
+          radioEl.checked = true;
+        }
+
+      }
+
+      const labelEl = document.createElement('label');
+      Polymer.dom(labelEl).textContent = item.label;
+      Polymer.dom(labelEl).setAttribute('for', id);
+
+      const spanEl = tr.ui.b.createSpan({className: 'labeled-option'});
+      Polymer.dom(spanEl).appendChild(radioEl);
+      Polymer.dom(spanEl).appendChild(labelEl);
+
+      spanEl.__defineSetter__('checked', function(opt_bool) {
+        const changed = radioEl.checked !== (!!opt_bool);
+        if (!changed) return;
+
+        radioEl.checked = !!opt_bool;
+        onChange();
+      });
+      spanEl.__defineGetter__('checked', function() {
+        return radioEl.checked;
+      });
+
+      Polymer.dom(optionGroupEl).appendChild(spanEl);
+    }
+    Polymer.dom(optionGroupEl).appendChild(
+        createEditCategorySpan(optionGroupEl, targetEl));
+    // Since this option group element is not yet added to the tree,
+    // querySelector will fail during updateEditCategoriesStatus_ call.
+    // Hence, creating the element with the 'expanded' classlist category
+    // added, if last selected value was 'Manual' selection.
+    if (!initialValue.length) {
+      Polymer.dom(optionGroupEl).classList.add('categories-expanded');
+    }
+    targetEl[targetElProperty] = preset;
+    return optionGroupEl;
+  }
+
+  function createOptionGroupPerf(targetEl, targetElProperty,
+      settingsKey, defaultValue,
+      items) {
+    function onChange() {
+      targetEl[targetElProperty] = this.value;
+    }
+
+    const optionGroupEl = document.createElement('div')
+    optionGroupEl.className = 'categories'
+    const initialValue = defaultValue;
+    for (let i = 0; i < items.length; ++i) {
+
+      const id = items[i];
+      const value = id.replace(';',',');
+      let label = value.split('!')[0].replace('perf-','');
+
+      const perfEvt = perfChkRE.exec(value);
+      if (perfEvt[1] != undefined) {
+        const label = perfEvt[1];
+      }
+
+      const radioEl = document.createElement('input');
+      radioEl.type = 'radio';
+      Polymer.dom(radioEl).setAttribute('id', id);
+      Polymer.dom(radioEl).setAttribute('name', 'perf-events-group');
+      Polymer.dom(radioEl).setAttribute('value', value);
+      radioEl.addEventListener('change', onChange.bind(radioEl, targetEl,
+          targetElProperty,
+          settingsKey));
+      if (valuesEqual(initialValue, value)) {
+        radioEl.checked = true;
+      }
+      
+      if (perfEvt[2] == '-1' ) {
+        radioEl.disabled = true;
+      }
+
+      const labelEl = document.createElement('label');
+      Polymer.dom(labelEl).textContent = label;
+      Polymer.dom(labelEl).setAttribute('for', id);
+
+      const spanEl = document.createElement('div')
+      Polymer.dom(spanEl).appendChild(radioEl);
+      Polymer.dom(spanEl).appendChild(labelEl);
+
+      spanEl.__defineSetter__('checked', function(opt_bool) {
+        const changed = radioEl.checked !== (!!opt_bool);
+        if (!changed) return;
+
+        radioEl.checked = !!opt_bool;
+        onChange();
+      });
+      spanEl.__defineGetter__('checked', function() {
+        return radioEl.checked;
+      });
+
+      Polymer.dom(optionGroupEl).appendChild(spanEl);
+    } 
+    targetEl[targetElProperty] = initialValue;
+
+    return optionGroupEl;
+  }
+
+  const allSchedRE = new RegExp('sched\/.*');
+  const allClkRE = new RegExp('clk\/.*');
+  const allIrqHandlerRE = new RegExp('irq\/(irq|softirq)_.*');
+  const allIrqHandlerREwithNmi = new RegExp('(irq|nmi)\/(irq|softirq|nmi)_.*');
+  const allIrqHandlerREwithIpi = new RegExp('irq\/(x86_platform_ipi|irq|softirq)_.*');
+  const allWorkerqRE = new RegExp('workqueue\/.*');
+  const allCpuREwithIdleFreq = new RegExp('power\/cpu_(idle|frequency)');
+  const allNetRE = new RegExp('net\/.*');
+  const allNetREwithXdp = new RegExp('xdp\/xdp_driver_.*');
+  const allCobaltSchedRE = new RegExp('cobalt_core\/.*');
+  const powerREwithWakeup = new RegExp('power\/(pm|wakeup)_.*');
+  const rpmRE = new RegExp('rpm\/.*');
+  const dmaFenceRE = new RegExp('dma_fence\/.*');
+  const i915RE = new RegExp('i915\/.*');
+  const drmRE = new RegExp('drm\/.*');
+  const ext4FsRE = new RegExp('ext4\/.*');
+  const blockDevRE = new RegExp('block\/.*');
+  const syncRE = new RegExp('sync\/.*');
+  const spiRE = new RegExp('spi\/.*');
+  const i2cRE = new RegExp('i2c\/.*');
+
+  const DEFAULT_PRESETS = [
+    {title: 'Linux Preempt/RT Kernel',
+      categoryFilter: [
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq
+        ],
+        modeFilter: 'record-until-full',
+        optionFilter: [
+        'record-tgid!1',
+        'marker!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+        ],
+        functionFilter: [
+        ]},
+    {title: 'Linux Xenomai/Cobalt Kernel',
+      categoryFilter: [
+        allCobaltSchedRE,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]},
+      {title: 'Linux Ethernet/TSN',
+      categoryFilter: [
+        allNetRE,
+        //syncRE,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq, 
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'marker!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]},
+    {title: 'Linux I2C/SPI devices',
+      categoryFilter: [
+        spiRE,
+        i2cRE,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq,
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]
+    },
+    {title: 'Linux UI Rendering',
+      categoryFilter: [
+        i915RE,
+        drmRE,
+        dmaFenceRE,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]},
+      {title: 'Linux PM runtime',
+      categoryFilter: [
+        //rpmRE,
+        powerREwithWakeup,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+        allCpuREwithIdleFreq,
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]
+    },
+    {title: 'Linux Disk/Filesystem',
+      categoryFilter: [
+        ext4FsRE, 
+        blockDevRE,
+        allSchedRE,
+        allClkRE,
+        allIrqHandlerREwithNmi,
+        allWorkerqRE,
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]},
+    {title: 'Manually select settings',
+      categoryFilter: [],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: []
+    }
+  ];
+  const RECORDING_MODES = [
+    {'label': 'Record until full',
+      'value': 'record-until-full'},
+    {'label': 'Record continuously',
+      'value': 'record-continuously'}]
+    //TODO(fpirou): add synthetic-events based 
+    // hist-trigger conditions:
+    //{'label': 'Record triggered snapshots',
+    //  'value': 'record-snapshots'},
+  const DEFAULT_CONTINUOUS_TRACING = true;
+  const CALLSTACK_DEPTH = [
+    {'label': '128',
+     'value': 'g128'},
+    {'label': '64',
+     'value': 'g64'},
+    {'label': '32',
+     'value': 'g32'},
+    {'label': '16',
+     'value': 'g16'},
+    {'label': '8',
+     'value': 'g8'},
+    {'label': '4',
+     'value': 'g4'},
+    {'label': '2',
+     'value': 'g2'},
+    {'label': '0',
+     'value': ''}]
+    //TODO(fpirou): add synthetic-events based 
+    // hist-trigger conditions:
+    //{'label': 'Record triggered snapshots',
+    //  'value': 'record-snapshots'},
+  const DEFAULT_CALLSTACK_DEPTH = 'g4';
+  const TestExports = {};
+
+  // Matches the tracing option format
+  const perfChkRE = new RegExp(
+    'perf-(.+)!(.+)|perf-(.+)');
+  TestExports.perfChkRE = perfChkRE;
+
+  // Matches the tracing option format
+  const optionChkRE = new RegExp(
+    'option-(Chk|hideChk)-(.+)!(.+)');
+  TestExports.optionChkRE = optionChkRE;
+
+  const optionTxtRE = new RegExp(
+    'option-Txt-(.+)!(.+)');
+  TestExports.optionTxtRE = optionTxtRE;
+
+  const optionSltRE = new RegExp(
+    'option-Slt-(.+)\\?(.*)!(.+)');
+  TestExports.optionSltRE = optionSltRE;
+  
+  RecordSelectionDialogRt.prototype = {
+    __proto__: tr.ui.b.Overlay.prototype,
+
+    decorate(cat, func, trig) {
+      this.categories = cat;
+      this.functions = func;
+      this.triggers = trig;
+
+      tr.ui.b.Overlay.prototype.decorate.call(this);
+      this.title = 'Record a new trace...';
+
+      Polymer.dom(this).classList.add('record-dialog-overlay');
+
+      const node =
+          tr.ui.b.instantiateTemplate('#record-selection-dialog-template',
+              THIS_DOC);
+      Polymer.dom(this).appendChild(node);
+
+      this.recordButtonEl_ = document.createElement('button');
+      Polymer.dom(this.recordButtonEl_).textContent = 'Record';
+      this.recordButtonEl_.addEventListener(
+          'click',
+          this.onRecordButtonClicked_.bind(this));
+      this.recordButtonEl_.style.fontSize = '110%';
+      Polymer.dom(this.buttons).appendChild(this.recordButtonEl_);
+
+      this.categoriesView_ = Polymer.dom(this).querySelector(
+          '.categories-column-view');
+      this.presetsEl_ = Polymer.dom(this).querySelector('.category-presets');
+      Polymer.dom(this.presetsEl_).appendChild(createOptionGroup(
+          this, 'currentlyChosenPreset', 
+          'about_tracing.record_selection_dialog_preset',
+          DEFAULT_PRESETS[0].categoryFilter,
+          DEFAULT_PRESETS[0].modeFilter,
+          DEFAULT_PRESETS[0].optionFilter,
+          DEFAULT_PRESETS[0].functionFilter,
+          DEFAULT_PRESETS.map(function(p) {
+            return { label: p.title, value: p.categoryFilter, mode: p.modeFilter, option: p.optionFilter, function: p.functionFilter};
+          })));
+
+      this.tracingRecordModeSltr_ = tr.ui.b.createSelector(
+          this, 'tracingRecordMode',
+          'recordSelectionDialogRt.tracingRecordMode',
+          DEFAULT_PRESETS[0].modeFilter, RECORDING_MODES);
+
+      this.tracingSelectContainerEl_ = Polymer.dom(this).querySelector(
+          '.tracing-select');
+      Polymer.dom(this.tracingSelectContainerEl_).appendChild(
+          this.tracingRecordModeSltr_);
+
+      this.tracingOptionsContainerEl_ = Polymer.dom(this).querySelector(
+          '.tracing-modes .options');
+      
+      this.enabledCategoriesContainerEl_ =
+          Polymer.dom(this).querySelector(
+              '.default-enabled-event-categories .categories');
+
+      this.functionCategoriesContainerEl_ =
+          Polymer.dom(this).querySelector(
+              '.default-enabled-function-categories .categories');
+
+      this.perfCategoriesContainerEl_ =
+          Polymer.dom(this).querySelector(
+              '.default-enabled-perf-categories .categories');
+
+      this.createGroupSelectButtons_(
+          Polymer.dom(this).querySelector('.default-enabled-event-categories'));
+      this.createGroupSelectButtons_(
+          Polymer.dom(this).querySelector('.default-enabled-function-categories')); 
+
+      this.perfRecordGraphSltr_ = tr.ui.b.createSelector(
+          this, 'perfRecordGraph',
+          'recordSelectionDialogRt.perfRecordGraph',
+          DEFAULT_CALLSTACK_DEPTH, CALLSTACK_DEPTH);
+
+      this.perfRecordFilterTxt_ = tr.ui.b.createTextInput(
+          this, 'perfRecordFilter',
+          'recordSelectionDialogRt.perfRecordFilter',
+          '');
+
+      this.perfRecordOptionsContainerEl_ = Polymer.dom(this).querySelector(
+          '.default-enabled-perf-categories .group-selectors');
+      Polymer.dom(this.perfRecordOptionsContainerEl_).appendChild(
+          this.perfRecordGraphSltr_);
+      const labelEl = document.createElement('label');
+      Polymer.dom(labelEl).textContent = 'Filter';
+      Polymer.dom(this.perfRecordOptionsContainerEl_).appendChild(
+          labelEl);
+      Polymer.dom(this.perfRecordOptionsContainerEl_).appendChild(
+          this.perfRecordFilterTxt_);
+      
+      this.createDefaultFunctionsWarningDialog_(
+          Polymer.dom(this).querySelector(
+              '.warning-default-enabled-function-categories'));
+
+      this.createDefaultTracingWarningDialog_(
+          Polymer.dom(this).querySelector(
+              '.warning-default-enabled-tracing-categories'));
+
+      this.createDefaultPerfWarningDialog_(
+          Polymer.dom(this).querySelector(
+              '.warning-default-enabled-perf-categories'));
+
+      this.editCategoriesOpened_ = false;
+
+      // TODO(chrishenry): When used with tr.ui.b.Overlay (such as in
+      // chrome://tracing, this does not yet look quite right due to
+      // the 10px overlay content padding (but it's good enough).
+      this.infoBarGroup_ = Polymer.dom(this).querySelector(
+          'tr-ui-b-info-bar-group');
+
+      this.addEventListener('visible-change', this.onVisibleChange_.bind(this));
+    },
+
+    get perfRecordFilter() {
+      return this.perfRecordFilterTxt_.value;
+    },
+    set perfRecordFilter(value) {
+      this.perfRecordFilter_ = value;
+    },
+
+    get perfRecordGraph() {
+      return this.perfRecordGraphSltr_.selectedValue;
+    },
+
+    set perfRecordGraph(value) {
+      this.perfRecordGraph_ = value;
+    },
+
+    get tracingRecordMode() {
+      return this.tracingRecordModeSltr_.selectedValue;
+    },
+    set tracingRecordMode(value) {
+      this.tracingRecordMode_ = value;
+    },
+
+    get current_tracer() {
+      if (this.tracingOptionsContainerEl_ == undefined)
+        return undefined; 
+      const selectors = Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+                  'select');
+      const selLength = selectors.length;
+      const categories = [];
+      for (let i = 0; i < selLength; ++i) {
+        const selector = selectors[i];
+        if (selector.name === 'current_tracer') {
+          return selector.selectedValue;
+        }
+      }                  
+    },
+
+    set current_tracer(value) {
+
+      this.current_tracer_ = value;
+  
+      const functionCategories = Polymer.dom(this).querySelector(
+              '.default-enabled-function-categories');
+
+      if ( value !== 'function_graph' ) {
+        functionCategories.classList.add('default-enabled-function-categories-hidden');
+      } else {
+        if (Polymer.dom(functionCategories).classList.contains(
+            'default-enabled-function-categories-hidden')) {
+          Polymer.dom(functionCategories).classList.remove('default-enabled-function-categories-hidden');
+        }
+      }
+    },
+
+    set functions(c) {
+      if (!(c instanceof Array)) {
+        throw new Error('kernel functions filter must be an array');
+      }
+      tr.ui.e.about_tracing.functions_ = c;
+
+      for (let i = 0; i < tr.ui.e.about_tracing.functions_.length; i++) {
+        const split = tr.ui.e.about_tracing.functions_[i].split(',');
+        tr.ui.e.about_tracing.functions_[i] = split.shift();
+        if (split.length > 0) {
+          tr.ui.e.about_tracing.functions_ = tr.ui.e.about_tracing.functions_.concat(split);
+        }
+      }
+    },
+
+    set triggers(c) {
+      if (!(c instanceof Array)) {
+        throw new Error('kernel event triggers must be an array');
+      }
+      tr.ui.e.about_tracing.triggers_ = c;
+
+      for (let i = 0; i < tr.ui.e.about_tracing.triggers_.length; i++) {
+        const split = tr.ui.e.about_tracing.triggers_[i].split(',');
+        tr.ui.e.about_tracing.triggers_[i] = split.shift();
+        if (split.length > 0) {
+          tr.ui.e.about_tracing.triggers_ = tr.ui.e.about_tracing.triggers_.concat(split);
+        }
+      }
+    },
+
+    set categories(c) {
+      if (!(c instanceof Array)) {
+        throw new Error('categories must be an array');
+      }
+      tr.ui.e.about_tracing.categories_ = c;
+
+      for (let i = 0; i < tr.ui.e.about_tracing.categories_.length; i++) {
+        const split = tr.ui.e.about_tracing.categories_[i].split(',');
+        tr.ui.e.about_tracing.categories_[i] = split.shift();
+        if (split.length > 0) {
+          tr.ui.e.about_tracing.categories_ = tr.ui.e.about_tracing.categories_.concat(split);
+        }
+      }
+    },
+
+    set settings_key(k) {
+      this.settings_key_ = k;
+    },
+
+    set settings(s) {
+      throw new Error('Dont use this!');
+    },
+
+    useFunctionGraph() {
+      return this.current_tracer_ === 'function_graph';
+    },
+
+    usingPreset_() {
+      return this.currentlyChosenPreset_.length > 0;
+    },
+
+    usingFunctionPreset_() {
+      return this.currentlyChosenPresetFunction_.length > 0;
+    },
+
+    usingOptionPreset_() {
+      return this.currentlyChosenPresetOption_.length > 0;
+    },
+
+    usingModePreset_() {
+      return this.currentlyChosenPresetMode_ != undefined;
+    },
+
+    get currentlyChosenPreset() {
+      return this.currentlyChosenPreset_;
+    },
+    
+    get currentlyChosenFunctionPreset() {
+      return this.currentlyChosenFunctionPreset_;
+    },
+
+    get currentlyChosenOptionPreset() {
+      return this.currentlyChosenOptionPreset_;
+    },
+
+    set currentlyChosenPreset(preset) {
+      if (!(preset.value instanceof Array)) {
+        throw new Error('RecordSelectionDialog.currentlyChosenPreset:' +
+            ' preset must be an array.');
+      }
+      this.currentlyChosenPreset_ = preset.value;
+      this.currentlyChosenFunctionPreset_ = preset.functions;
+      this.currentlyChosenOptionPreset_ = this.updatePresetTracingOptions_(preset.options);
+
+      if (this.usingPreset_()) {
+        this.changeEditCategoriesState_(false);
+        if (this.tracingRecordModeSltr_ != undefined)
+          this.tracingRecordModeSltr_.selectedValue = preset.mode;
+      } else {
+        this.updateCategoryColumnView_(true);
+        this.changeEditCategoriesState_(true);
+      }
+      this.updateManualSelectionView_();
+      this.updatePresetDescription_();
+    },
+
+    updateManualSelectionView_() {
+
+      const functionCategories = Polymer.dom(this).querySelector(
+              '.default-enabled-function-categories');
+
+      if (!this.useFunctionGraph()) {
+        functionCategories.classList.add('default-enabled-function-categories-hidden');
+      } else {
+        if (Polymer.dom(functionCategories).classList.contains(
+            'default-enabled-function-categories-hidden'))
+          Polymer.dom(functionCategories).classList.remove('default-enabled-function-categories-hidden');
+      }
+
+      const classList = Polymer.dom(this.categoriesView_).classList;
+      if (!this.usingPreset_()) {
+        classList.remove('categories-column-view-hidden');
+      } else {
+        if (this.editCategoriesOpened_) {
+          classList.remove('categories-column-view-hidden');
+        } else {
+          classList.add('categories-column-view-hidden');
+        }
+      }
+    },
+
+    updateCategoryColumnView_(shouldReadFromSettings) {
+      const categorySet = Polymer.dom(this).querySelectorAll('.categories');
+      for (let i = 0; i < categorySet.length; ++i) {
+        const categoryGroup = categorySet[i].children;
+        for (let j = 0; j < categoryGroup.length; ++j) {
+          const categoryEl = categoryGroup[j].children[0];
+          const category = categoryEl.value;
+          if (!category.startsWith('perf-')) {
+            const enabledByDefault = !category.startsWith('function-')  ;
+            categoryEl.checked = shouldReadFromSettings ?
+              tr.b.Settings.get(category, enabledByDefault, this.settings_key_) :
+            false;
+          }
+        }
+      }
+    },
+
+    onClickEditCategories() {
+      if (!this.usingPreset_()) return;
+
+      if (!this.editCategoriesOpened_) {
+        this.updateCategoryColumnView_(false);
+        for (let i = 0; i < this.currentlyChosenPreset_.length; ++i) {
+          const categoryEl = this.querySelector('#' + this.currentlyChosenPreset_[i].replace('/', '-'));
+          if (!categoryEl) continue;
+          categoryEl.checked = true;
+        }
+      }
+
+      this.changeEditCategoriesState_(!this.editCategoriesOpened_);
+      this.updateManualSelectionView_();
+      this.recordButtonEl_.focus();
+    },
+
+    changeEditCategoriesState_(editCategoriesState) {
+      const presetOptionsGroup = Polymer.dom(this).querySelector(
+          '.labeled-option-group');
+      if (!presetOptionsGroup) return;
+      this.editCategoriesOpened_ = editCategoriesState;
+      if (this.editCategoriesOpened_) {
+        Polymer.dom(presetOptionsGroup).classList.remove('categories-hidden');
+        Polymer.dom(presetOptionsGroup).classList.add('categories-expanded');
+      } else {
+        Polymer.dom(presetOptionsGroup).classList.remove('categories-expanded');
+        Polymer.dom(presetOptionsGroup).classList.add('categories-hidden');
+      }
+    },
+
+    updatePresetDescription_() {
+      const description = Polymer.dom(this).querySelector(
+          '.category-description');
+      if (this.usingPreset_()) {
+        description.innerText = this.currentlyChosenPreset_;
+        Polymer.dom(description).classList.remove(
+            'category-description-hidden');
+      } else {
+        description.innerText = '';
+        if (!Polymer.dom(description).classList.contains(
+            'category-description-hidden')) {
+          Polymer.dom(description).classList.add('category-description-hidden');
+        }
+      }
+    },
+
+    updatePresetTracingOptions_(o) {
+      if (!(o instanceof Array)) {
+        throw new Error('categories must be an array');
+      }
+      this.presets_ = [];
+      const values_ = [];
+      const ret = []
+      for (let i = 0; i < o.length; i++) {
+        const split = o[i].split('!');
+        this.presets_ = this.presets_.concat(split[0]);
+        values_.push(split[1]);
+      }
+      if (this.usingPreset_() && 
+          this.tracingOptionsContainerEl_ != undefined && 
+          this.presets_.length > 0 ) {
+            let options = Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+                  'input');
+            options = options.concat(Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+                  'select'));
+            for (let i = 0; i < options.length; ++i) {
+              const optionEl = options[i];
+              const presetIndex = this.presets_.indexOf(optionEl.name) ;
+              if ( presetIndex >= 0 ) {
+                if (optionEl.type === 'checkbox')
+                  optionEl.checked = values_[presetIndex] > 0 ? true : false; 
+                else if (optionEl.type === 'text')
+                  optionEl.value = values_[presetIndex];
+                else if (optionEl.type === 'select-one')
+                  optionEl.selectedValue = values_[presetIndex];
+              }
+            }
+      }
+      return ret;
+    },
+
+
+    includedAndOtherCategories() {
+      let includedCategories = [];
+      let excludedCategories = [];
+      let includedFunctionFilters = [];
+      let optionsCategories = [];
+      let perfCategories = [];
+      if (this.usingPreset_()) {
+        const allCategories = this.allCategories_();
+        for (const category in allCategories) {
+          const optionsByDefault =
+              category.indexOf('option-') === 0;
+          const perfByDefault =
+              category.indexOf('perf-') === 0;
+          if ( !optionsByDefault && !perfByDefault ) {
+            if ( this.currentlyChosenPreset_.indexOf(category) >= 0 ) {
+                includedCategories.push(category);
+            } else {
+               excludedCategories.push(category);
+            }
+          }
+        }
+        const allFunctions = this.allFunctions_();
+        for (const functFilter in allFunctions) {
+          if ( this.currentlyChosenFunctionPreset_.indexOf(functFilter) >= 0 ) {
+            includedFunctionFilters.push(functFilter);
+          }
+        }
+        optionsCategories = this.enabledByDefaultOptions_();
+        return {
+          includedEvents: includedCategories,
+          excludedEvents: excludedCategories,
+          includedFunctions: includedFunctionFilters,
+          options: optionsCategories,
+          perf: this.enabledByDefaultPerfCategory_()
+        };
+      }
+
+      includedCategories = this.enabledByDefaultCategories_();
+      excludedCategories = [];
+      includedFunctionCategories = this.enabledByDefaultFunctionCategories_();
+      perfCategories = this.enabledByDefaultPerfCategory_();
+      optionsCategories = this.enabledByDefaultOptions_();
+      return {
+        includedEvents: includedCategories,
+        excludedEvents: excludedCategories,
+        includedFunctions: includedFunctionCategories,
+        options: optionsCategories,
+        perf: perfCategories
+      };
+    },
+
+    clickRecordButton() {
+      this.recordButtonEl_.click();
+    },
+
+    onRecordButtonClicked_() {
+      this.visible = false;
+      tr.b.dispatchSimpleEvent(this, 'recordclick');
+      return false;
+    },
+
+    collectInputs_(inputs, isChecked) {
+      const inputsLength = inputs.length;
+      const categories = [];
+      for (let i = 0; i < inputsLength; ++i) {
+        const input = inputs[i];
+        if (input.checked === isChecked) {
+          categories.push(input.value);
+        }
+      }
+      return categories;
+    },
+    
+    collectOptions_(options) {
+      const optionsLength = options.length;
+      const ret = [];
+      for (let i = 0; i < optionsLength; ++i) {
+        const option = options[i];
+        if (option.type === 'checkbox')
+          ret.push(option.id + '!' + (option.checked ? 1 : 0) );
+        else if (option.type === 'text')
+          ret.push(option.id + '!' + option.value);
+        else if (option.type === 'select-one')
+          ret.push(option.id + '!' + option.value);
+      }
+      return ret;
+    },
+
+    unselectedCategories_() {
+      const inputs =
+          Polymer.dom(this.enabledCategoriesContainerEl_).querySelectorAll(
+              'input');
+      return this.collectInputs_(inputs, false);
+    },
+    enabledByDefaultCategories_() {
+      const inputs =
+          Polymer.dom(this.enabledCategoriesContainerEl_).querySelectorAll(
+              'input');
+      return this.collectInputs_(inputs, true);
+    },
+    enabledByDefaultPerfCategory_() {
+      let perfEvt = this.perfRecord;
+      let perfEvtSuffix = ''; 
+      if (this.perfRecordFilter !== undefined)
+        perfEvtSuffix = '?F' + this.perfRecordFilter;
+
+      if (!perfEvt.startsWith('perf-None') &&
+          !perfEvt.endsWith('!-1')) {
+        return [ perfEvt + this.perfRecordGraph + perfEvtSuffix ];
+      } else {
+        return [];
+      }
+    },
+    enabledByDefaultOptions_() {
+      let inputs =
+          Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+              'input');
+          inputs = inputs.concat(Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+              'select'));
+      return this.collectOptions_(inputs);
+    },
+    unselectedFunctionCategories_() {
+      const inputs =
+          Polymer.dom(this.functionCategoriesContainerEl_).querySelectorAll(
+              'input');
+      return this.collectInputs_(inputs, false);
+    },    
+    enabledByDefaultFunctionCategories_() {
+      const inputs =
+          Polymer.dom(this.functionCategoriesContainerEl_).querySelectorAll(
+              'input');
+      return this.collectInputs_(inputs, true);
+    },    
+
+    onVisibleChange_() {
+      if (this.visible) {
+        this.updateForm_();
+      }
+    },
+
+    buildInputs_(inputs, checkedDefault, parent) {
+      const inputsLength = inputs.length;
+      for (let i = 0; i < inputsLength; i++) {
+        const category = inputs[i];
+        const inputEl = document.createElement('input');
+        let categoryShortName = 'None';
+        let categoryLabel = 'None';
+
+        categoryLabel = category;
+        categoryShortName = category.replace('/', '-');
+        inputEl.type = 'checkbox';
+        inputEl.id = categoryShortName;
+        inputEl.value = category;
+        if (parent.disabled) {
+          inputEl.disabled = true;
+        } else {
+          inputEl.checked = tr.b.Settings.get(
+            category, checkedDefault, this.settings_key_);
+          inputEl.onclick = this.updateSetting_.bind(this);
+        }
+
+        const labelEl = document.createElement('label');
+        Polymer.dom(labelEl).textContent = categoryLabel;
+        Polymer.dom(labelEl).setAttribute('for', categoryShortName);
+
+        const divEl = document.createElement('div');
+        Polymer.dom(divEl).appendChild(inputEl);
+        Polymer.dom(divEl).appendChild(labelEl);
+        Polymer.dom(parent).appendChild(divEl);
+      }
+    },
+
+    buildOptions_(targetEl, parentTargetElProperty, parent, inputs) {
+      const inputsLength = inputs.length;
+      for (let i = 0; i < inputsLength; i++) {
+
+        if ( optionChkRE.test(inputs[i]) ) {
+          // 
+          const option = optionChkRE.exec(inputs[i]);
+          let optionClass = (option[1] === 'hideChk') ? 'option-hidden'  : 'option';
+          const optionsByName = option[2];
+          let optionsByShortName = option[2].split('/');
+          if ( optionsByShortName.length > 0 ) {
+            optionsByShortName = optionsByShortName[optionsByShortName.length - 1]
+          } else {
+            optionsByShortName = optionsByName;
+          }
+          optionClass = parseInt(option[3]) == -1 ? 'option-undefined'  : optionClass;
+          const optionsByDefault = parseInt(option[3]) > 0 ? true : false;
+          const optionIsDef = parseInt(option[3]) == -1 ? undefined  : optionsByDefault;
+          const targetElProperty = optionsByShortName.replace('-','_');
+          const settingsKey = parentTargetElProperty + '.' + targetElProperty;
+
+          function updateOptionSetting_() {
+
+            // Change the current record mode to 'Manually select settings' from
+            // preset mode if and only if currently user is in preset record mode
+            // and user selects/deselects any category in 'Edit Categories' mode.
+            //if (this.usingPreset_()) {
+            //}
+          }
+          const optionChkEl  = tr.ui.b.createCheckBox(
+              targetEl, targetElProperty,
+              settingsKey,
+              optionsByDefault,
+              optionsByShortName, updateOptionSetting_);
+          const inputEl = Polymer.dom(optionChkEl).querySelector('input');
+          inputEl.id = optionsByName;
+          inputEl.name = optionsByShortName;
+          const divEl = tr.ui.b.createDiv({className: optionClass});
+          Polymer.dom(divEl).appendChild(optionChkEl);
+          Polymer.dom(parent).appendChild(divEl);
+          
+        } else if ( optionTxtRE.test(inputs[i]) ) {
+          // 
+          const option = optionTxtRE.exec(inputs[i]);
+          const optionsByName = option[1];
+          let optionsByShortName = option[1].split('/');
+          if ( optionsByShortName.length > 0 ) {
+            optionsByShortName = optionsByShortName[optionsByShortName.length - 1]
+          } else {
+            optionsByShortName = optionsByName;
+          }
+          const optionClass = parseInt(option[2]) == -1 ? 'option-undefined'  : 'option';
+          const optionsByDefault = option[2];
+          const optionIsDef = parseInt(option[2]) == -1 ? undefined  : optionsByDefault;
+          const targetElProperty = optionsByShortName.replace('-','_');
+          const settingsKey = parentTargetElProperty + '.' + targetElProperty;
+
+          const labelEl = document.createElement('label');
+          Polymer.dom(labelEl).textContent = optionsByShortName;
+          Polymer.dom(labelEl).setAttribute('for', optionsByShortName);
+
+          const optionTxtEl = tr.ui.b.createTextInput(
+              targetEl, targetElProperty,
+              settingsKey,
+              optionsByDefault);
+          optionTxtEl.id = optionsByName;
+          optionTxtEl.name = optionsByShortName;
+          const divEl = tr.ui.b.createDiv({className: optionClass});
+          Polymer.dom(divEl).appendChild(labelEl);              
+          Polymer.dom(divEl).appendChild(optionTxtEl);
+          Polymer.dom(parent).appendChild(divEl);
+
+        } else if ( optionSltRE.test(inputs[i]) ) {
+          // 
+          const option = optionSltRE.exec(inputs[i]);
+          const optionsByName = option[1];
+          let optionsByShortName = option[1].split('/');
+          if ( optionsByShortName.length > 0 ) {
+            optionsByShortName = optionsByShortName[optionsByShortName.length - 1]
+          } else {
+            optionsByShortName = optionsByName;
+          }
+          const optionsBySelect = option[2].split(':');
+          const optionClass = parseInt(option[3]) == -1 ? 'option-undefined'  : 'option';
+          const optionsByDefault = option[3];
+          const items = [];
+          const targetElProperty = optionsByShortName.replace('-','_');
+          const settingsKey = parentTargetElProperty + '.' + targetElProperty;
+
+          if (optionsBySelect.length) {
+
+            for (let i = 0; i < optionsBySelect.length; i++) {
+              if (optionsBySelect[i] === optionsByDefault ) {
+                defaultValueIndex = i;
+              }
+              items.push( { 'label': optionsBySelect[i],
+                            'value': optionsBySelect[i]} );
+            }
+
+            const labelEl = document.createElement('label');
+            Polymer.dom(labelEl).textContent = optionsByShortName;
+            Polymer.dom(labelEl).setAttribute('for', optionsByShortName);
+            
+            const optionSltEl = tr.ui.b.createSelector(
+              targetEl, targetElProperty,
+              settingsKey,
+              optionsByDefault, items);
+            optionSltEl.id = optionsByName;
+            optionSltEl.name = optionsByShortName;
+            const divEl = tr.ui.b.createDiv({className: optionClass});
+            Polymer.dom(divEl).appendChild(labelEl);
+            Polymer.dom(divEl).appendChild(optionSltEl);
+            Polymer.dom(parent).appendChild(divEl);
+          }
+        }
+      }
+    },
+
+    allCategories_() {
+      // Dedup the categories. We may have things in settings that are also
+      // returned when we query the category list.
+      const categorySet = {};
+      //const allCategories =
+      //    this.categories_.concat(tr.b.Settings.keys(this.settings_key_));
+      const allCategories = 
+      tr.ui.e.about_tracing.categories_;
+      const allCategoriesLength = allCategories.length;
+      for (let i = 0; i < allCategoriesLength; ++i) {
+        categorySet[allCategories[i]] = true;
+      }
+      return categorySet;
+    },
+
+    allFunctions_() {
+      // Dedup the Functions. We may have things in settings that are also
+      // returned when we query the category list.
+      const FunctionSet = {};
+      const allFunctions =
+        tr.ui.e.about_tracing.functions_;
+      const allFunctionsLength = allFunctions.length;
+      for (let i = 0; i < allFunctionsLength; ++i) {
+        FunctionSet[allFunctions[i]] = true;
+      }
+      return FunctionSet;
+    },
+
+    updateForm_() {
+      function ignoreCaseCompare(a, b) {
+        return a.toLowerCase().localeCompare(b.toLowerCase());
+      }
+
+      // Clear old categories
+      Polymer.dom(this.enabledCategoriesContainerEl_).innerHTML = '';
+      Polymer.dom(this.perfCategoriesContainerEl_).innerHTML = '';
+      Polymer.dom(this.functionCategoriesContainerEl_).innerHTML = '';
+      Polymer.dom(this.tracingOptionsContainerEl_).innerHTML = '';
+
+      this.recordButtonEl_.focus();
+
+      const allCategories = this.allCategories_();
+      let categories = [];
+      let optionsCategories = [];
+      let functionCategories = [];
+      let perfCategories = [];
+      for (const category in allCategories) {
+        if (category.indexOf('option-') === 0) {
+          optionsCategories.push(category);
+        } else if (category.indexOf('perf-') === 0) {
+          perfCategories.push(category);
+        } else {
+          categories.push(category);
+        }
+      }
+      for (const functFilter in this.allFunctions_()) {
+        functionCategories.push(functFilter);
+      }
+      optionsCategories = optionsCategories.sort(ignoreCaseCompare);
+      functionCategories = functionCategories.sort(ignoreCaseCompare);
+      perfCategories = perfCategories.sort(ignoreCaseCompare);
+      categories = categories.sort(ignoreCaseCompare);
+
+      if (tr.ui.e.about_tracing.categories_.length === 0) {
+        this.infoBarGroup_.addMessage(
+            'No categories found; chech that Linux .config contains CONFIG_TRACING=y, CONFIG_EVENT_TRACING=y, CONFIG_HIST_TRIGGERS=y and CONFIG_DYNAMIC_FTRACE=y');
+      }
+
+      this.buildInputs_(categories, true, this.enabledCategoriesContainerEl_);
+
+      if (optionsCategories.length > 0) {
+        this.tracingOptionsContainerEl_.hidden = false;
+        this.buildOptions_(this,'recordSelectionDialogRt',
+        this.tracingOptionsContainerEl_,optionsCategories);
+      }
+
+      if (functionCategories.length > 0) {
+        this.functionCategoriesContainerEl_.hidden = false;
+        this.functionCategoriesContainerEl_.disabled = this.funcgraph_flat == undefined ?  true : !this.funcgraph_flat;
+        this.buildInputs_(functionCategories, false,
+            this.functionCategoriesContainerEl_);
+      }
+
+      if (perfCategories.length > 0) {
+        perfCategories = ['perf-None!x'].concat(perfCategories);
+        const perfCategoriesNewContainerEl_ = createOptionGroupPerf(
+          this, 'perfRecord', 
+          'about_tracing.record_selection_dialog_preset',
+          'perf-None!x',
+          perfCategories)
+        const perfCategoriesContainerParentEl_ =
+          Polymer.dom(this).querySelector(
+              '.default-enabled-perf-categories');
+        Polymer.dom(perfCategoriesContainerParentEl_).removeChild(this.perfCategoriesContainerEl_);            
+        Polymer.dom(perfCategoriesContainerParentEl_).appendChild(perfCategoriesNewContainerEl_);
+        this.perfCategoriesContainerEl_.hidden = false;
+      }
+
+    },
+
+    updateSetting_(e) {
+      const checkbox = e.target;
+      tr.b.Settings.set(checkbox.value, checkbox.checked, this.settings_key_);
+
+      // Change the current record mode to 'Manually select settings' from
+      // preset mode if and only if currently user is in preset record mode
+      // and user selects/deselects any category in 'Edit Categories' mode.
+      if (this.usingPreset_()) {
+        this.currentlyChosenPreset_ = []; /* manually select settings */
+        const categoryEl = this.querySelector(
+            '#category-preset-Manually-select-settings');
+        categoryEl.checked = true;
+        const description = Polymer.dom(this).querySelector(
+            '.category-description');
+        description.innerText = '';
+        Polymer.dom(description).classList.add('category-description-hidden');
+      }
+    },
+
+    createGroupSelectButtons_(parent) {
+      const flipInputs = function(dir) {
+        const inputs = Polymer.dom(parent).querySelectorAll('input');
+        for (let i = 0; i < inputs.length; i++) {
+          if (inputs[i].checked === dir) continue;
+          // click() is used so the settings will be correclty stored. Setting
+          // checked does not trigger the onclick (or onchange) callback.
+          inputs[i].click();
+        }
+      };
+
+      const noneBtn = Polymer.dom(parent).querySelector('.none-btn');
+      noneBtn.onclick = function(evt) {
+        flipInputs(false);
+        evt.preventDefault();
+      };
+    },
+
+    setWarningDialogOverlayText_(messages) {
+      const contentDiv = document.createElement('div');
+
+      for (let i = 0; i < messages.length; ++i) {
+        const messageDiv = document.createElement('div');
+        Polymer.dom(messageDiv).textContent = messages[i];
+        Polymer.dom(contentDiv).appendChild(messageDiv);
+      }
+      Polymer.dom(this.warningOverlay_).textContent = '';
+      Polymer.dom(this.warningOverlay_).appendChild(contentDiv);
+    },
+
+    createDefaultFunctionsWarningDialog_(warningLink) {
+      function onClickHandler(evt) {
+        this.warningOverlay_ = tr.ui.b.Overlay();
+        this.warningOverlay_.parentEl_ = this;
+        this.warningOverlay_.title = 'Warning...';
+        this.warningOverlay_.userCanClose = true;
+        this.warningOverlay_.visible = true;
+
+        this.setWarningDialogOverlayText_([
+          'Uses \'tracing/options/funcgraph-flat\' ',
+          'low-overhead TRACE_GRAPH_PRINT_FLAT funtion-graph tracer',
+          'Disabled otherwise.'
+        ]);
+
+        evt.preventDefault();
+      }
+      warningLink.onclick = onClickHandler.bind(this);
+    },
+
+    createDefaultTracingWarningDialog_(warningLink) {
+      function onClickHandler(evt) {
+        this.warningOverlay_ = tr.ui.b.Overlay();
+        this.warningOverlay_.parentEl_ = this;
+        this.warningOverlay_.title = 'Warning...';
+        this.warningOverlay_.userCanClose = true;
+        this.warningOverlay_.visible = true;
+
+        this.setWarningDialogOverlayText_([
+          'Using Linux \'trace events\' may require',
+          'mounting manually the debugfs with \:',
+          '\'sudo mount -t debugfs none /sys/kernel/debug/\' commands'
+        ]);
+
+        evt.preventDefault();
+      }
+      warningLink.onclick = onClickHandler.bind(this);
+    },
+
+    createDefaultPerfWarningDialog_(warningLink) {
+      function onClickHandler(evt) {
+        this.warningOverlay_ = tr.ui.b.Overlay();
+        this.warningOverlay_.parentEl_ = this;
+        this.warningOverlay_.title = 'Warning...';
+        this.warningOverlay_.userCanClose = true;
+        this.warningOverlay_.visible = true;
+
+        this.setWarningDialogOverlayText_([
+          'Using Linux \'perf events\' may requires to install',
+          'linux-perf or linux-tools-common package.',
+          'Try \'perf list\' to check if available.'
+        ]);
+
+        evt.preventDefault();
+      }
+      warningLink.onclick = onClickHandler.bind(this);
+    }
+  };
+
+  return {
+    RecordSelectionDialogRt,
+    _RecordSelectionDialogRtTestExports: TestExports
+
+  };
+});
+</script>
