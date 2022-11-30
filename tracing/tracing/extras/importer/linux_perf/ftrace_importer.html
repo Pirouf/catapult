@@ -125,7 +125,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
@@ -148,7 +148,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const lineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGIDpatch = function(line) {
     const groups = lineREWithTGIDpatch.exec(line);
@@ -173,7 +173,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const lineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][Hhs.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithIRQInfo = function(line) {
     const groups = lineREWithIRQInfo.exec(line);
@@ -199,7 +199,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const PREEMPT_RTlineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGID = function(line) {
     const groups = PREEMPT_RTlineREWithTGID.exec(line);
@@ -222,7 +222,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const PREEMPT_RTlineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGIDpatch = function(line) {
     const groups = PREEMPT_RTlineREWithTGIDpatch.exec(line);
@@ -247,7 +247,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const PREEMPT_RTlineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX.][Nnp.][NnLp.][Hhs.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithIRQInfo = function(line) {
     const groups = PREEMPT_RTlineREWithIRQInfo.exec(line);
