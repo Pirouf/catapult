@@ -30,6 +30,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         SchedParser.prototype.schedSwitchEvent.bind(this));
     importer.registerEventHandler('sched_wakeup',
         SchedParser.prototype.schedWakeupEvent.bind(this));
+        importer.registerEventHandler('sched_wakeup_new',
+        SchedParser.prototype.schedWakeupEvent.bind(this));
     importer.registerEventHandler('sched_blocked_reason',
         SchedParser.prototype.schedBlockedEvent.bind(this));
     importer.registerEventHandler('sched_cpu_hotplug',
