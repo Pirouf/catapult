@@ -105,7 +105,8 @@ Polymer({
   set selection(selection) {
     const timeSlice = tr.b.getOnlyElement(selection);
 
-    if (!(timeSlice instanceof tr.model.ThreadTimeSlice)) {
+    if (!(timeSlice instanceof tr.model.ThreadTimeSlice || 
+          timeSlice instanceof tr.model.xnThreadTimeSlice)) {
       throw new Error('Only supports thread time slices');
     }
 

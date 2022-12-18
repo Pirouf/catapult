@@ -60,6 +60,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       'next_name=(.+) next_pid=(\\d+) next_prio=(\-*\\d+)');
   TestExports.xnschedSwitchRE = xnschedSwitchRE;
 
+  const unknownThreadName = '<...>';
+
   // TODO!
   // Matches sched_blocked_reason record
   //const schedBlockedRE = new RegExp('pid=(\\d+) iowait=(\\d) caller=(.+)');
@@ -102,7 +104,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // it in the capture groups
   // Example: cobalt_shadow_gohard: cobalt_shadow_relaxed: state=0x680c0 info=0x0   
   const xnSchedShadowGohardRE =
-      /state=(.+) info=(.+)/;
+      /state=0x([0-9a-f]+) info=(.+)/;
   TestExports.xnSchedShadowGohardRE = xnSchedShadowGohardRE;
 
   // Matches the cobalt_shadow_hardened: record < 3.0.9
@@ -118,7 +120,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // it in the capture groups
   // Example: cobalt_shadow_hardened: state=0x60040 info=0x0   
   const xnSchedShadowHardenedRE =
-      /state=(.+) info=(.+)/;
+      /state=0x([0-9a-f]+) info=(.+)/;
   TestExports.xnSchedShadowHardenedRE = xnSchedShadowHardenedRE;
 
   // Matches the cobalt_shadow_gorelax record format ONLY Xenomai < 3.0.9
@@ -150,7 +152,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // it in the capture groups
   // Example: cobalt_shadow_relaxed: state=0x680c0 info=0x0   
   const xnSchedShadowRelaxedRE =
-      /state=(.+) info=(.+)/;
+      /state=0x([0-9a-f]+) info=(.+)/;
   TestExports.xnSchedShadowRelaxedRE = xnSchedShadowRelaxedRE;
 
   xnSchedParser.prototype = {
@@ -165,61 +167,104 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) return this.xnSchedSwitchEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const prevComm = event[1];
-      const prevXnid = parseInt(event[2]);
+      const prevTid = parseInt(event[2]);
       const prevPrio = parseInt(event[3]);      
       const prevState = event[4];
       const nextComm = event[5];
-      const nextXnid = parseInt(event[6]);
+      const nextTid = parseInt(event[6]);
       const nextPrio = parseInt(event[7]);
 
-      if (eventBase.tgid !== undefined) {
-        const tgid = parseInt(eventBase.tgid);
-        const process = this.importer.model_.getOrCreateProcess(tgid);
-        if (!process.getThread(pid)) {
-          const thread = process.getOrCreateThread(pid);
-          thread.name = eventBase.threadName;
-        }
-      }
-
-      const nextThread = this.importer.threadsByLinuxPid[nextXnid];
       let nextName;
-      if (nextThread) {
-        nextName = nextThread.userFriendlyName;
-      } else {
-        nextName = nextComm;
+      nextName = nextComm;
+      const nextThread = this.importer.xnThreadStates_[nextTid];
+      if ( nextThread ) {
+
+        //
+        // Cobalt Thread already existing
+        //
+        nextThread.openSliceTS = ts;
+        nextThread.openSlice = nextComm;
+        nextName = nextThread.thread.name;
+
       }
 
-
-      let prevTask;
-      if (prevXnid) {
-        prevTask = this.importer.getOrCreateXnThread(prevComm + ':' + prevXnid, "Xenomai/Cobalt tasks", prevXnid, prevXnid );
-
-        if (prevTask.openSlice) {
-          prevTask.openSliceDuration = ts - prevTask.openSliceTS;
-        }
-        prevTask.openSlice = undefined;        
-      }
-
-      let nextTask;      
-      if (nextXnid && (nextComm !== '(ROOT/'+ cpuNumber +')')) {
-        nextTask = this.importer.getOrCreateXnThread(nextComm + ':' + nextXnid, "Xenomai/Cobalt tasks", nextXnid, nextXnid );
-  /* */
-         nextTask.openSliceTS = ts;
-         nextTask.openSlice = nextComm;
-      }
+      this.prevHeadSchedState = prevState;
 
       const cpu = this.importer.getOrCreateCpu(cpuNumber);
       cpu.switchActiveThread(
-          ts,
-          { stateWhenDescheduled: this.importer.formatXnThreadState(prevState) },
-          nextXnid,
-          nextName,
-          {
-            comm: nextComm,
-            tid: nextXnid,
-            prio: nextPrio
-          });
+        ts,
+        { 
+          stateWhenDescheduled: 'S|0x1000',
+          xnStateWhenDescheduled: tr.model.formatXnThreadState(this.prevHeadSchedState)
+        },
+        nextTid,
+        nextName,
+        {
+          comm: 'cobalt:'+nextName,
+          tid: nextTid,
+          prio: nextPrio,
+        });
 
+      const prevThread = this.importer.xnThreadStates_[prevTid];
+      if (prevThread) {
+
+        //
+        // Cobalt Thread already existing
+        //
+
+        if ( ( prevThread.name === unknownThreadName ) ||
+             ( prevThread.name !== prevComm ) ) {
+          prevThread.name = prevComm;
+          prevThread.thread.name = prevComm;
+          prevThread.thread.userFriendlyName = prevComm;
+        }
+
+        let tgid;
+        if (eventBase.tgid !== undefined) {
+          tgid = parseInt(eventBase.tgid);
+        } else {
+          tgid = prevTid;
+        }
+
+        if ( ( tgid  === prevThread.thread.parent.pid ) &&
+             ( prevThread.name !==  prevThread.thread.parent.name ) ) {
+            prevThread.thread.parent.name = prevComm;
+        }
+
+        if (prevThread.openSlice) {
+          prevThread.openSliceDuration = ts - prevThread.openSliceTS;
+        }
+
+        prevThread.openSlice = undefined;
+
+      } else if ( prevComm !== 'ROOT/'+ cpuNumber) {
+        //
+        // New Cobalt Thread
+        //
+
+        let tgid;
+        if (eventBase.tgid !== undefined) {
+          tgid = parseInt(eventBase.tgid);
+        } else {
+          tgid = prevTid;
+        }
+
+        const storedThread = this.importer.getOrCreateXnThread(
+            prevComm, tgid , prevTid, prevTid);
+
+        if ( ( storedThread.name === unknownThreadName ) ||
+             ( storedThread.name !== prevComm ) ) {
+          storedThread.name = prevComm;
+          storedThread.thread.name = prevComm;
+          storedThread.thread.userFriendlyName = prevComm;
+        }
+
+        if (storedThread.openSlice) {
+          storedThread.openSliceDuration = ts - storedThread.openSliceTS;
+        }
+        storedThread.openSlice = undefined;
+      }
+ 
       return true;
     },
 
@@ -230,7 +275,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const state = event[1];
       const info = event[2];
 
-      //this.importer.markXnidGohardLegacy(ts, pid, comm, pid, pid, state, info);
       this.importer.markXnidGohard(ts, pid, state, info);
       return true;
     },
@@ -242,7 +286,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const state = event[1];
       const info = event[2];
 
-      //this.importer.markXnidHardenedLegacy(ts, pid, comm, pid, pid, state,info);
+      //this.prevHeadSchedState = state;
+
       this.importer.markXnidHardened(ts, pid, state,info);
       return true;
     },
@@ -253,7 +298,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const xnreason = event[2];
 
-      //this.importer.markXnidGorelaxReasonLegacy(ts, pid, pid, xnreason);
       this.importer.markXnidGorelaxReason(ts, pid, xnreason);
       return true;
     },
@@ -264,9 +308,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const state = event[1];
       const info = event[2];
+    
+      //this.prevHeadSchedState = state;
 
-      //this.importer.markXnidRelaxedLegacy(ts, pid, comm, pid, pid, state, info);
-      this.importer.markXnidRelaxed(ts, pid);
+      this.importer.markXnidRelaxed(ts, pid, state, info);
       return true;
     },
 
@@ -276,9 +321,20 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const fromPid = pid;
       const xnsync = event[1];
-      this.prevHeadSchedState = 'S';
 
       this.importer.markXnSyncWake(ts, xnsync, cpuNumber, fromPid);
+      return true;
+    },
+
+    xnSchedSyncSleeponEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = xnSchedSyncSleeponRE.exec(eventBase.details);
+      if (!event) xnSchedSyncSleeponEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+
+      const fromPid = pid;
+      const xnsync = event[1];
+      const comm = event[3];
+
+      this.importer.markXnSyncSleep(ts, xnid, xnsync, cpuNumber, fromPid);
       return true;
     },
 
@@ -320,7 +376,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       let nextTask;      
       if (nextXnid) {
         nextTask = this.importer.getOrCreatePseudoXnThread(nextComm, "Xenomai/Cobalt tasks", nextXnid);
-/* */
+
         nextTask.thread_name = nextComm;
         nextTask.openSliceTS = ts;
         nextTask.openSlice = nextComm;
@@ -409,17 +465,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return true;
     },
     
-    xnSchedShadowRelaxedEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedShadowRelaxedRE.exec(eventBase.details);
-      if (!event) return false;
-
-      const state = event[4];
-      const info = event[5];
-
-      this.importer.markXnidRelaxed(ts, pid);
-      return true;
-    },
-
     xnSchedShadowRelaxedEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowRelaxedRELegacy.exec(eventBase.details);
       if (!event) return false;
@@ -456,7 +501,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       return true;
     },
 
-    xnSchedSyncSleeponEvent(eventName, cpuNumber, pid, ts, eventBase) {
+    xnSchedSyncSleeponEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedSyncSleeponRE.exec(eventBase.details);
       if (!event) return false;
 

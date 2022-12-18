@@ -121,38 +121,39 @@ tr.exportTo('tr.model', function() {
    * Xenomai/Cobalt follows a strict declaration order of the state flags
    * defined above. Status symbols are defined as follows:
    *
-   * 'S' -> Forcibly suspended.
-   * 'w'/'W' -> Waiting for a resource, with or without timeout.
-   * 'D' -> Delayed (without any other wait condition).
-   * 'R' -> Runnable.
-   * 'U' -> Unstarted or dormant.
-   * '.' -> Zombie thread in deletion process
-   * 'm' -> Mapped to a linux task.
-   * 'X' -> Relaxed shadow.
-   * 'x' -> Thread is currently migrating to another CPU
-   * 'H' -> Held in emergency.
-   * 'b' -> Priority boost undergoing.
-   * 'T' -> Ptraced and stopped.
-   * 'l' -> Locks scheduler.
-   * 'r' -> Undergoes round-robin.
-   * 't' -> Runtime mode errors notified.
-   * '.' -> Thread uses FPU
-   * '.' -> Root thread (that is, Linux/IDLE)
-   * '.' -> Non real-time shadow (from the WEAK class)   
-   * 'u' -> Shadow thread running in userland
-   * 'J' -> Another thread waits for joining this thread
-   * 'L' -> Lock breaks trapped.
-   * '.' -> Unknown.   
+   * XNSUSP      : 'S' -> Forcibly suspended.
+   * XNPEND      : 'W'/'w' -> Waiting for a resource, with or without timeout.
+   * XNDELAY     : 'D' -> Delayed (without any other wait condition).
+   * XNREADY     : 'R' -> Runnable.
+   * XNDORMANT   : 'U' -> Unstarted or dormant.
+   * XNZOMBIE    : 'Z' -> Zombie thread in deletion process
+   * XNMAPPED    : 'm' -> Mapped to a linux task.
+   * XNRELAX     : 'X' -> Relaxed shadow.
+   * XNMIGRATE   : 'x' -> Thread is currently migrating to another CPU
+   * XNHELD      : 'H' -> Held in emergency.
+   * XNBOOST     : 'b' -> Priority boost undergoing.
+   * XNSSTEP     : 'T' -> Ptraced and stopped.
+   * XNLOCK      : 'l' -> Locks scheduler.
+   * XNRRB       : 'r' -> Undergoes round-robin.
+   * XNWARN      : 't' -> Runtime mode errors notified.
+   * XNFPU       : 'f' -> Thread uses FPU
+   * XNROOT      : 'I' -> Root thread (that is, Linux/IDLE)
+   * XNWEAK      : 'i' -> Non real-time shadow (from the WEAK class)
+   * XNUSER      : 'u' -> Shadow thread running in userland
+   * XNJOINED    : 'J' -> Another thread waits for joining this thread
+   * XNTRAPLB    : 'L' -> Lock breaks trapped.
+   * XNDEBUG     : 'd' -> in step-Debug mode.
+   * XNKNOWN     : '.' -> Unknown.   
    */
     function formatXnThreadState(status) {
       const COBALT_CORE_STATE_MASK = tr.model.COBALT_CORE_STATE_MASK;
-      const XNTHREAD_STATE_LABELS = "SWDRU.mXxHbTlrt...uJL.";
+      const XNTHREAD_STATE_LABELS = "SWDRUZmXxHbTlrtfIiuJLd.";
 
       let c;
       let buf = '';
 
-      for (var mask = status, pos = 0;
-       mask != 0 ; 
+      for (var mask = parseInt(status,16), pos = 0;
+       mask != 0 ;
        mask >>= 1, pos++) {
 
           if ((mask & 1) == 0)
@@ -161,28 +162,23 @@ tr.exportTo('tr.model', function() {
           c = XNTHREAD_STATE_LABELS.charAt(pos);
 
           switch (1 << pos) {
-             case COBALT_CORE_STATE_MASK.XNROOT:
-               c = 'R'; // Always mark root as runnable.
-               break;
-
-             case COBALT_CORE_STATE_MASK.XNREADY:
+            /*
+            case COBALT_CORE_STATE_MASK.XNREADY:
                if (status & COBALT_CORE_STATE_MASK.XNROOT)
                  continue; // Already reported on XNROOT.
                break;
-/*
-*/
-             case COBALT_CORE_STATE_MASK.XNDELAY:
+            case COBALT_CORE_STATE_MASK.XNDELAY:
               // Only report genuine delays here, not timed waits for resources.
                if (status & COBALT_CORE_STATE_MASK.XNPEND)
                  continue;
                break;
-
-             case COBALT_CORE_STATE_MASK.XNPEND:
+            */
+            case COBALT_CORE_STATE_MASK.XNPEND:
                // Report timed waits with lowercase symbol.
                if (status & COBALT_CORE_STATE_MASK.XNDELAY)
                  c |= 0x20;
                break;
-              default:
+            default:
                if (c == '.')
                  continue;
           }
@@ -200,32 +196,32 @@ tr.exportTo('tr.model', function() {
 
       switch (state) {
         case COBALT_CORE_STATE.XNREADY:
-        case COBALT_CORE_STATE.XNMAPPED:
           return getColorIdForReservedName('thread_state_runnable');
-        case COBALT_CORE_STATE.XNROOT:
+        case COBALT_CORE_STATE.XNMAPPED:
         case COBALT_CORE_STATE.XNWEAK:
-        case COBALT_CORE_STATE.XNUSER:        
+        case COBALT_CORE_STATE.XNUSER:
+        case COBALT_CORE_STATE.XNROOT:
         case COBALT_CORE_STATE.XNBOOST:
-        case COBALT_CORE_STATE.XNRRB:                
-        case COBALT_CORE_STATE.XNFPU:                
+        case COBALT_CORE_STATE.XNRRB:
           return getColorIdForReservedName('thread_state_running');
         case COBALT_CORE_STATE.XNRELAX:
         case COBALT_CORE_STATE.XNMIGRATE:
-	   return getColorIdForReservedName('thread_state_relaxed');
         case COBALT_CORE_STATE.XNSUSP:
         case COBALT_CORE_STATE.XNDELAY:
         case COBALT_CORE_STATE.XNDORMANT:
-        case COBALT_CORE_STATE.XNHELD:
           return getColorIdForReservedName('thread_state_sleeping');
         case COBALT_CORE_STATE.XNJOINED:
+        case COBALT_CORE_STATE.XNLOCK:
+        case COBALT_CORE_STATE.XNZOMBIE:
+        case COBALT_CORE_STATE.XNHELD:
           return getColorIdForReservedName('thread_state_uninterruptible');
         case COBALT_CORE_STATE.XNPEND:
-        case COBALT_CORE_STATE.XNLOCK:
           return getColorIdForReservedName('thread_state_iowait');
         case COBALT_CORE_STATE.XNWARN:
         case COBALT_CORE_STATE.XNTRAPLB:
         case COBALT_CORE_STATE.XNSSTEP:
         case COBALT_CORE_STATE.XNDEBUG:
+        case COBALT_CORE_STATE.XNFPU:
         default:
           return getColorIdForReservedName('thread_state_unknown');
       }

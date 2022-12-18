@@ -731,74 +731,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       this.lostage_.push({ts, tid: pid, fromTid: fromPid});
     },
 
-  /*
-   * Xenomai/Cobalt follows a strict declaration order of the state flags
-   * defined above. Status symbols are defined as follows:
-   *
-   * 'S' -> Forcibly suspended.
-   * 'w'/'W' -> Waiting for a resource, with or without timeout.
-   * 'D' -> Delayed (without any other wait condition).
-   * 'R' -> Runnable.
-   * 'U' -> Unstarted or dormant.
-   * 'X' -> Relaxed shadow.
-   * 'H' -> Held in emergency.
-   * 'b' -> Priority boost undergoing.
-   * 'T' -> Ptraced and stopped.
-   * 'l' -> Locks scheduler.
-   * 'r' -> Undergoes round-robin.
-   * 't' -> Runtime mode errors notified.
-   * 'L' -> Lock breaks trapped.
-   */
-    formatXnThreadState(status) {
-      const COBALT_CORE_STATE_MASK = tr.model.COBALT_CORE_STATE_MASK;
-      const XNTHREAD_STATE_LABELS = "SWDRU..X.HbTlrt.....L.";
-      const labels = XNTHREAD_STATE_LABELS;
-
-      let c;
-      let buf = '';
-
-      for (var mask = status, pos = 0;
-       mask != 0 ; 
-       mask >>= 1, pos++) {
-
-          if ((mask & 1) == 0)
-              continue;
-
-/* */
-          c = labels.charAt(pos);
-
-          switch (1 << pos) {
-             case COBALT_CORE_STATE_MASK.XNROOT:
-               c = 'R'; // Always mark root as runnable.
-               break;
-
-             case COBALT_CORE_STATE_MASK.XNREADY:
-               if (status & COBALT_CORE_STATE_MASK.XNROOT)
-                 continue; // Already reported on XNROOT.
-               break;
-
-             case COBALT_CORE_STATE_MASK.XNDELAY:
-              // Only report genuine delays here, not timed waits for resources.
-               if (status & COBALT_CORE_STATE_MASK.XNPEND)
-                 continue;
-               break;
-
-             case COBALT_CORE_STATE_MASK.XNPEND:
-               // Report timed waits with lowercase symbol.
-               if (status & COBALT_CORE_STATE_MASK.XNDELAY)
-                 c |= 0x20;
-               break;
-
-             default:
-               if (c == '.')
-                 continue;
-          }
-          buf += c;
-      }
-      return (buf);
-    },
-
-
     /** Xenomai >= 3.0.9
      * Records the fact that a xnid has become Hardened. This data will
      * eventually get used to derive each thread's timeSlices array.
@@ -986,7 +918,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       for (const i in this.gohard_) {
         const xnwshadow = this.gohard_[i];
-        const xnthread = this.threadsByXnid[xnwshadow.xnid];
+        const xnthread = this.threadsByXnid[xnwshadow.tid];
         if (!xnthread) continue;
         xnthread.tempXnwShadows = xnthread.tempXnwShadows || [];
         xnthread.tempXnwShadows.push(xnwshadow);
@@ -1093,186 +1025,234 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         // Walk the slice list and put slices between each original slice to
         // show when the thread isn't running.
         const slices = [];
-        let shadow = undefined;
         let wakeup = undefined;
+        let syncup = undefined;
+        let shadow = undefined;
         let hardened = undefined;        
         let relaxed = undefined;
-        let gorelax = undefined;
+        let relaxedReason = undefined;
         let wakeupDuration = 0;
+
         let wakeupTS = undefined;
         let wakeupState = undefined;
         let runDuration = 0;
         let runTS = undefined;
         let state = undefined;
+
         let args = {};
 
         if (origSlices.length) {
           const slice = origSlices[0];
 
-        if (!thread.xnid) { 
-
-          args = { 'name' : thread.name, 'tid' : thread.tid };
+          wakeupDuration = 0;
+          wakeupTS = slice.start;
 
           if (wakeups.length && wakeups[0].ts < slice.start) {
             wakeup = wakeups.shift();
             wakeupTS =  wakeup.ts;
             wakeupDuration = slice.start - wakeup.ts;
-            args = { 'name' : thread.name, 'tid' : thread.tid, 'prio': wakeup.prio, 'wakeup from tid': wakeup.fromTid};
+            args = { 'name' : thread.name, 
+                     'tid' : thread.tid, 
+                     'prio': wakeup.prio, 
+                     'wakeup from tid': wakeup.fromTid 
+                    };
 
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
                 wakeupTS, args, wakeupDuration));
-          } else {
-              wakeupDuration = 0;
-              wakeupTS = slice.start;
           }
 
-          const sliceTask = new tr.model.ThreadSlice('', thread.name,
+          if (!thread.xnid) { 
+            
+            args = { 'name' : thread.name,
+                     'tid' : thread.tid,
+                     'prio' : slice.args.prio
+                   };
+
+            const sliceTask = new tr.model.ThreadSlice('', thread.name,
               ColorScheme.getColorIdForGeneralPurposeString(thread.name),
               wakeupTS,
               args,
               wakeupDuration + slice.duration, slice.start, slice.duration );
-          thread.sliceGroup.pushSlice(sliceTask);
-
-          const runningSlice = new tr.model.ThreadTimeSlice(
-              thread, SCHEDULING_STATE.RUNNING, '',
-              slice.start, args, slice.duration);
-          runningSlice.cpuOnWhichThreadWasRunning = slice.cpu;
-          slices.push(runningSlice);
-
-        } else {
-
-          args = { 'name' : thread.name, 'xnid' : thread.xnid };
-
-          if (xnshadows.length && xnshadows[0].ts < slice.start) {
-            if (xnharden.length && xnharden[0].ts < slice.end) {
-              // Cobalt Shadow thread with gohard for rt scheduling 
-              shadow = xnshadows.shift();
-              hardened = xnharden.shift();
-
-              wakeupTS =  shadow.ts;
-              wakeupDuration = slice.start - shadow.ts;
-
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'shadowed from [ROOT]/tid': shadow.fromTid, 'xnstate': tr.model.formatXnThreadState(shadow.xnstate), 'xninfo': shadow.xninfo};
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNREADY, '',
-                  wakeupTS, args, wakeupDuration));
-
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'xnstate': tr.model.formatXnThreadState(hardened.xnstate)};
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNRELAX, '',
-                  slice.start, args, hardened.ts - slice.start));
-
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'hardened from [ROOT]/tid': hardened.fromTid, 'xnstate': tr.model.formatXnThreadState(hardened.xnstate), 'xninfo': hardened.xninfo};
-              runDuration = slice.end - hardened.ts;
-              runTS = hardened.ts;
-
-            } else {
-              // Cobalt Shadow thread without gohard (ie. weak) for non-rt scheduling 
-              shadow = xnshadows.shift();
-
-              wakeupTS =  shadow.ts;
-              wakeupDuration = slice.start - shadow.ts;
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'shadowed from [ROOT]/tid': shadow.fromTid, 'xnstate': tr.model.formatXnThreadState(shadow.xnstate), 'xninfo': shadow.xninfo};
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNREADY, '',
-                  wakeupTS, args, wakeupDuration));
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNRELAX, '',
-                  slice.start, args, hardened.ts - slice.start));
-
-              runDuration = slice.duration;
-              runTS = slice.start;
-            }
-
-          } else if (xnsyncups.length && xnsyncups[0].ts < slice.start) {
-/*
-            if (xnRelaxReasons.length && xnRelaxReasons[0].ts < slice.end) {
-              // Cobalt Shadow thread with gohard for rt scheduling 
-              wakeup = xnsyncups.shift();
-              gorelax = xnRelaxReasons.shift();
-
-              wakeupTS =  wakeup.ts;
-              wakeupDuration = slice.start - wakeup.ts;              
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'woken-up by xsyncid': wakeup.xnsyncid, 'xnstate': 'R'};
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNREADY, '',
-                  wakeupTS, args, wakeupDuration));
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.XNUSER, '',
-                  slice.start, args, gorelax.ts - slice.start));
-
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'relax to [ROOT]/tid': gorelax.fromTid, 'Reason': gorelax.xnreason};                  
-              runDuration = slice.end - gorelax.ts;
-              runTS = gorelax.ts;
-
-            } else {
-*/              
-              wakeup = xnsyncups.shift();
-
-              wakeupTS =  wakeup.ts;
-              wakeupDuration = slice.start - wakeup.ts;              
-              args = { 'name' : thread.name, 'xnid' : thread.xnid, 'woken-up by xsyncid': wakeup.xnsyncid, 'xnstate': 'R'};
-
-              slices.push(new tr.model.xnThreadTimeSlice(
-                thread, COBALT_CORE_STATE.XNREADY, '',
-                wakeupTS, args, wakeupDuration));
-
-              runDuration = slice.duration;
-              runTS = slice.start;
-//            }
-          } else {
-                wakeupDuration = 0;
-                wakeupTS = slice.start;
-                runDuration = slice.duration;
-                runTS = slice.start;
-          }
-
-          const sliceTask = new tr.model.ThreadSlice('', thread.name,
-                ColorScheme.getColorIdForGeneralPurposeString(thread.name),
-                wakeupTS,
-                args,
-                wakeupDuration + slice.duration, slice.start, slice.duration );
+            
             thread.sliceGroup.pushSlice(sliceTask);
 
-          const runningSlice = new tr.model.xnThreadTimeSlice(
-                thread, COBALT_CORE_STATE.XNUSER, '',
-                runTS, args, runDuration);
+            args ['prior_sched_state'] = slice.args.stateWhenDescheduled;
+
+            const runningSlice = new tr.model.ThreadTimeSlice(
+              thread, SCHEDULING_STATE.RUNNING, '',
+              slice.start, args, slice.duration);
             runningSlice.cpuOnWhichThreadWasRunning = slice.cpu;
             slices.push(runningSlice);
-         }
-	}
 
-        if(!thread.xnid) {
+          } else {
+
+            args = { 'name' : thread.name, 
+                     'tid' : thread.tid,
+                     'prio' : slice.args.prio
+                    };
+
+            if (xnsyncups.length && xnsyncups[0].ts < slice.start) {
+              syncup = xnsyncups.shift();
+              wakeupTS =  syncup.ts;
+              wakeupDuration = slice.start - syncup.ts;
+              args['syncid'] = syncup.xnsyncid;
+            }
+            
+            // Cobalt sheduler Sleep state condition  
+            let blockedReason = undefined;
+            if ((wakeup !== undefined &&
+                xnsyncsleeps.length &&
+                xnsyncsleeps[0].ts < wakeup.ts) || 
+                (shadow !== undefined &&
+                xnsyncsleeps.length &&
+                xnsyncsleeps[0].ts < shadow.ts)) {
+              blockedReason = xnsyncsleeps.shift();
+              args['syncid'] = blockedReason.xnsyncid;
+            }
+
+            if (xnshadows.length && xnshadows[0].ts < slice.start)
+              shadow = xnshadows.shift();
+
+            if (xnharden.length && xnharden[0].ts < slice.end)
+              hardened = xnharden.shift();
+
+            if (xnrelaxed.length && xnrelaxed[0].ts < slice.start)
+              relaxed = xnrelaxed.shift();
+
+            if ( xnRelaxReasons.length &&
+                 xnRelaxReasons[0].ts < slice.end) {
+              relaxedReason = xnRelaxReasons.shift();
+              args['reason'] = relaxedReason.xnreason;
+            } 
+
+            runDuration = slice.durations;
+            runTS = slice.start;
+            if ( shadow ) {
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                      thread, COBALT_CORE_STATE.XNREADY, '',
+                      shadow.ts, args, slice.start - shadow.ts));
+
+            } else if ( syncup ) {
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                      thread, COBALT_CORE_STATE.XNREADY, '',
+                      syncup.ts, args, slice.start - syncup.ts));
+
+            } else if ( relaxed ) {
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                    thread, COBALT_CORE_STATE.XNRELAX, '',
+                    relaxed.ts, args, slice.start - relaxed.ts));
+
+            } else if ( wakeup ) {
+              slices.push(new tr.model.xnThreadTimeSlice(
+                      thread, COBALT_CORE_STATE.XNROOT, '',
+                      wakeupTS, args, wakeupDuration));
+            }
+
+            args = { 'name' : 'cobalt:' + thread.name, 
+                     'xnid' : thread.xnid,
+                     'prio' : slice.args.prio,
+                    };
+
+            args ['prior_sched_state'] = slice.args.stateWhenDescheduled;
+            args ['prior_cobalt_state'] = slice.args.xnStateWhenDescheduled;
+            
+            let runningSliceName = thread.name; 
+            const runningSlice = new tr.model.ThreadTimeSlice(
+              thread, SCHEDULING_STATE.RUNNING, '',
+              slice.start, args, slice.duration);
+
+            if ( hardened ) { // Shadow thread running in userland
+
+              runningWeakSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNWEAK, '',
+                slice.start, args, hardened.ts - slice.start );
+                runningWeakSlice.cpuOnWhichThreadWasRunning = slice.cpu;
+              slices.push(runningWeakSlice);
+
+              runningSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNUSER, '',
+                hardened.ts, args, slice.end - hardened.ts);
+
+              runningSliceName = "cobalt:" + thread.name;
+
+            } else if ( shadow ) { // Non real-time shadow 
+
+              runningSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNWEAK, '',
+                runTS, args, runDuration);
+
+              runningSliceName = "cobalt:" + thread.name;
+
+            } else if ( syncup ) {
+
+              runningSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNUSER, '',
+                runTS, args, runDuration);
+
+              runningSliceName = "cobalt:" + thread.name;
+
+            } else if ( relaxedReason ) {
+
+              runningWeakSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNUSER, '',
+                slice.start, args, relaxedReason.ts - slice.start );
+                runningWeakSlice.cpuOnWhichThreadWasRunning = slice.cpu;
+              slices.push(runningWeakSlice);
+
+              runningSlice = new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNWEAK, '',
+                relaxedReason.ts, args, slice.end - relaxedReason.ts);
+
+              runningSliceName = "cobalt:" + thread.name;
+
+            }
+            runningSlice.cpuOnWhichThreadWasRunning = slice.cpu;
+            slices.push(runningSlice);
+
+            args = { 'name' : runningSliceName, 
+                     'xnid' : thread.xnid,
+                     'prio' : slice.args.prio,
+                    };
+
+            const sliceTask = new tr.model.ThreadSlice('', runningSliceName,
+              ColorScheme.getColorIdForGeneralPurposeString(runningSliceName),
+              wakeupTS,
+              args,
+              wakeupDuration + slice.duration, slice.start, slice.duration );
+            thread.sliceGroup.pushSlice(sliceTask);
+            
+          }
+        }
 
         for (let i = 1; i < origSlices.length; i++) {
-          let wakeup = undefined;
-          let wakeupTS = undefined;
-          let wakeupDuration = 0;
-          let wakeupState = undefined;
 
           const prevSlice = origSlices[i - 1];
           const nextSlice = origSlices[i];
+
           wakeupTS =  nextSlice.start;
-          wakeup = undefined;
           wakeupDuration = 0;
+          wakeup = undefined;
           wakeupState = undefined;
+
           let midDuration = nextSlice.start - prevSlice.end;
+
           while (wakeups.length && wakeups[0].ts < nextSlice.start) {
             const w = wakeups.shift();
             if (wakeup === undefined && w.ts > prevSlice.end) {
               wakeup = w;
             }
           }
+          
+          // Linux sheduler Sleep state condition  
           let blockedReason = undefined;
           while (reasons.length && reasons[0].ts < prevSlice.end) {
             const r = reasons.shift();
           }
+          
           if (wakeup !== undefined &&
               reasons.length &&
               reasons[0].ts < wakeup.ts) {
@@ -1282,16 +1262,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           // Push a sleep slice onto the slices list, interrupting it with a
           // wakeup if appropriate.
           //const pushSleep = function(state, uThreadGroup) {
-            const pushSleep = function(state) {
-            
+          const pushSleep = function(state) {
+              
             if (wakeup !== undefined) {
               midDuration = wakeup.ts - prevSlice.end;
             }
-
             if (blockedReason !== undefined) {
-              args = { 'name' : thread.name, 'tid' : thread.tid,
-                'kernel callsite when blocked:': blockedReason.caller
-              };
+              args['kernel callsite when blocked:'] = blockedReason.caller;
               if (blockedReason.iowait) {
                 switch (state) {
                   case SCHEDULING_STATE.UNINTR_SLEEP:
@@ -1317,7 +1294,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             if (wakeup !== undefined) {
               wakeupDuration = nextSlice.start - wakeup.ts;
               wakeupTS = wakeup.ts;
-              args = { 'name' : thread.name, 'tid' : thread.tid, 'prio': wakeup.prio, 'wakeup from tid': wakeup.fromTid};
+              args['wakeup from tid'] = wakeup.fromTid;
               slices.push(new tr.model.ThreadTimeSlice(
                   thread, SCHEDULING_STATE.RUNNABLE, '',
                   wakeupTS, args, wakeupDuration));
@@ -1328,14 +1305,154 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             }
           };
 
+          /* time-slicing Xenomai rt-scheduler state */
+          syncup = undefined;
+          shadow = undefined;
+          hardened = undefined;            
+          relaxed = undefined;
+          relaxedReason = undefined; 
+          args = { 'name' : thread.name,
+                   'tid' : thread.tid,
+                   'prio' : nextSlice.args.prio
+                  };
+
+          while (xnsyncups.length && xnsyncups[0].ts < nextSlice.start) {
+              const s = xnsyncups.shift();
+              if (syncup === undefined && s.ts > prevSlice.end) {
+                syncup = s;
+              }
+          }
+
+          // Cobalt sheduler Sleep state condition  
+          let wakeupReason = undefined;
+          while (xnsyncsleeps.length && xnsyncsleeps[0].ts < prevSlice.end) {
+            const r = xnsyncsleeps.shift();
+            if (syncup !== undefined &&
+              r.ts < syncup.ts) {
+                WakeupReason = r;
+              } 
+          }
+
+          while (xnshadows.length && xnshadows[0].ts < prevSlice.end) {
+            const w = xnshadows.shift();
+            if (shadow === undefined && 
+                w.ts > prevSlice.start) {
+              shadow = w;
+            }
+          }
+
+          while (xnrelaxed.length && xnrelaxed[0].ts < prevSlice.end) {
+            const r = xnrelaxed.shift();
+            if (relaxed === undefined &&              
+                r.ts > prevSlice.start) {
+              relaxed = r;
+            }
+          }
+
+          while (xnRelaxReasons.length && xnRelaxReasons[0].ts < nextSlice.end) {
+            const r = xnRelaxReasons.shift();
+            if ( xnRelaxReasons === undefined &&              
+                r.ts > nextSlice.start ) {
+              relaxedReason = r;
+            }
+          }
+
+          while (xnharden.length && xnharden[0].ts < nextSlice.end) {
+            const h = xnharden.shift();
+            if (hardened === undefined && 
+                h.ts > nextSlice.start) {
+              hardened = h;
+            }
+          }
+
+          /*
+          * PUSH a sleep slice onto the slices list, interrupting its with a
+          * goRelaxe / goHard if appropriate.
+          */
+          const pushXnSleep = function(state) {
+            
+            if (syncup !== undefined) {
+
+              if (wakeupReason !== undefined ) 
+                args['mode'] = 'Blocked onto PRIMARY by xnsyncid' + wakeupReason.xnsyncid;
+              else
+                args['mode'] = 'Sleep onto PRIMARY by xnsyncid' + syncup.xnsyncid;
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, state, '',
+                  prevSlice.end, args, prevSlice.end - syncup.ts ));
+
+              args['mode'] = 'Woken-up onto PRIMARY by xnsyncid' + syncup.xnsyncid;
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, COBALT_CORE_STATE.XNREADY, '',
+                  syncup.ts, args, syncup.ts - nextSlice.start));
+              
+              wakeupDuration = syncup.ts - nextSlice.start;
+              wakeupTS = syncup.ts;
+
+              syncup = undefined;
+
+            } else if (relaxed !== undefined) {
+
+              // relaxed SECONDARY handle
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, COBALT_CORE_STATE.XNREADY, '',
+                  prevSlice.end, args, relaxed.ts - prevSlice.end));
+
+              args['mode'] = 'Relaxed from PRIMARY domain';
+              args['state'] = tr.model.formatXnThreadState(relaxed.xnstate);
+              args['xninfo'] = relaxed.xninfo;
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, COBALT_CORE_STATE.XNRELAX, '',
+                  relaxed.ts, args, nextSlice.start - relaxed.ts));
+              
+              relaxed = undefined;
+
+            } else {
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, state, '',
+                  wakeupTS, args, wakeupDuration));
+
+             }
+
+            runDuration = nextSlice.duration;
+            runTS = nextSlice.start;
+          };
+
+          /*
+          * PUSH a Linux shadow slice onto the slices list, interrupting its with a
+          * Relaxed / goHard if appropriate.
+          */
+          const pushXnShadow = function() {
+
+            // goHard SECONDARY call  
+            if (shadow !== undefined) {
+              slices.push(new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNRELAX, '',
+                prevSlice.end, args, shadow.ts - prevSlice.end ));
+
+              args['mode'] = 'Shadowed from SECONDARY domain';
+              args['state'] = runState;
+              args['xninfo'] = shadow.xninfo;
+
+              slices.push(new tr.model.xnThreadTimeSlice(
+                thread, COBALT_CORE_STATE.XNREADY, '',
+                shadow.ts, args, nextSlice.start - shadow.ts));
+              shadow = undefined;
+            }
+            runDuration = nextSlice.duration;
+            runTS = nextSlice.start;
+          };
+
           if (prevSlice.args.stateWhenDescheduled === 'S' ||
               prevSlice.args.stateWhenDescheduled === 'I' ||
               prevSlice.args.stateWhenDescheduled === 'P') {
             pushSleep(SCHEDULING_STATE.SLEEPING);
-          } else if (prevSlice.args.stateWhenDescheduled === 'S|0x1000') {
-            pushSleep(SCHEDULING_STATE.SLEEPING_XNSHADOW);
           } else if (prevSlice.args.stateWhenDescheduled === 'R' ||
-                     prevSlice.args.stateWhenDescheduled === 'R+') {
+                    prevSlice.args.stateWhenDescheduled === 'R+') {
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.RUNNABLE, '',
                 prevSlice.end, args, midDuration));
@@ -1389,7 +1506,68 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL);
           } else if (prevSlice.args.stateWhenDescheduled === 'D|W') {
             pushSleep(SCHEDULING_STATE.UNINTR_SLEEP_WAKING);
+          } else if( prevSlice.args.stateWhenDescheduled === 'S|0x1000' ) {
+
+            runState = prevSlice.args.xnStateWhenDescheduled;
+
+            if (prevSlice.args.xnStateWhenDescheduled.match('S')) { //Forcibly suspended.
+              pushXnSleep(COBALT_CORE_STATE.XNSUSP);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('w') ||
+                      prevSlice.args.xnStateWhenDescheduled.match('W')) { //Waiting for a resource, with or without timeout.
+              pushXnSleep(COBALT_CORE_STATE.XNPEND);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('D')) { //Delayed (without any other wait condition).
+              pushXnSleep(COBALT_CORE_STATE.XNDELAY);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('-') ||
+                      prevSlice.args.xnStateWhenDescheduled.match('U')) { //Unstarted or dormant.
+              pushXnSleep(COBALT_CORE_STATE.XNDORMANT);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('R')) { // Runnable
+              args['mode'] = 'Runnable from PRIMARY';
+              slices.push(new tr.model.xnThreadTimeSlice(
+                    thread, COBALT_CORE_STATE.XNREADY, '',
+                    prevSlice.end, args, midDuration));
+              wakeupDuration = midDuration;
+              wakeupTS = prevSlice.end;
+              runDuration = nextSlice.duration;
+              runTS = nextSlice.start;
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('X')) { // Relaxed shadow.
+              pushXnShadow();
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('b')) { // Priority boost undergoing
+              pushXnSleep(COBALT_CORE_STATE.XNBOOST);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('l')) { //Locks scheduler
+              pushXnSleep(COBALT_CORE_STATE.XNLOCK);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('x')) { //ongoing CPU Migration.
+              pushXnSleep(COBALT_CORE_STATE.XNMIGRATE);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('r')) { //Undergoes round-robin.
+              pushXnSleep(COBALT_CORE_STATE.XNRRB);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('Z')) { //Runtime mode errors notified.
+              pushXnSleep(COBALT_CORE_STATE.XNZOMBIE);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('H')) { //Held in emergency
+              pushXnSleep(COBALT_CORE_STATE.XNHELD);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('T')) { //Ptraced and stopped.
+              pushXnSleep(COBALT_CORE_STATE.XNSSTEP);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('L')) { //Lock breaks trapped.
+              pushXnSleep(COBALT_CORE_STATE.XNTRAPLB);
+            } else if (prevSlice.args.xnStateWhenDescheduled.match('t')) { //Runtime mode errors notified.
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, COBALT_CORE_STATE.XNWARN, '',
+                  prevSlice.end, args, midDuration));
+              runDuration = nextSlice.duration;              
+              runTS = nextSlice.start;
+            } else {
+              slices.push(new tr.model.xnThreadTimeSlice(
+                  thread, COBALT_CORE_STATE.XNKNOWN, '',
+                  prevSlice.end, args, midDuration));
+              runDuration = nextSlice.duration;
+              runTS = nextSlice.start;
+              this.model_.importWarning({
+                type: 'parse_error',
+                message: 'Unrecognized xenomai sleep state: ' +
+                    prevSlice.args.xnStateWhenDescheduled
+              });
+            }
+
           } else {
+            
             slices.push(new tr.model.ThreadTimeSlice(
                 thread, SCHEDULING_STATE.UNKNOWN, '',
                 prevSlice.end, args, midDuration));
@@ -1402,278 +1580,19 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             });
           }
 
-          const sliceTask = new tr.model.ThreadSlice('', thread.name,
-              ColorScheme.getColorIdForGeneralPurposeString(thread.name),
-              wakeupTS,
-              args,
-              wakeupDuration + nextSlice.duration, nextSlice.start, nextSlice.duration );
-          thread.sliceGroup.pushSlice(sliceTask);
+          if( nextSlice.args.stateWhenDescheduled !== 'S|0x1000' ) {          
+            
+            const runningSlice = new tr.model.ThreadTimeSlice(
+                thread, SCHEDULING_STATE.RUNNING, '',
+                nextSlice.start, args, nextSlice.duration);
+            runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
+            slices.push(runningSlice);
 
-          const runningSlice = new tr.model.ThreadTimeSlice(
-              thread, SCHEDULING_STATE.RUNNING, '',
-              nextSlice.start, args, nextSlice.duration);
-          runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
-          slices.push(runningSlice);
-        }
+            args = { 'name' : thread.name, 
+                     'tid' : thread.tid, 
+                     'prio' : nextSlice.args.prio,
+                     'stateWhenDescheduled': nextSlice.args.stateWhenDescheduled };
 
-        } else {
-
-          for (let i = 1; i < origSlices.length; i++) {
-            /* time-slicing Xenomai rt-scheduler state*/ 
-            shadow = undefined;
-            hardened = undefined;            
-            wakeup = undefined;
-            gorelax = undefined;
-            relaxed = undefined;
-            wakeupTS = undefined;
-            wakeupDuration = 0;
-            runTS = undefined;
-            runDuration = 0;
-            state = undefined;
-
-            const prevSlice = origSlices[i - 1];
-            const nextSlice = origSlices[i];
-
-            let midDuration = nextSlice.start - prevSlice.end;
-
-            args = { 'name' : thread.name, 'xnid' : thread.xnid };
-
-            while (xnsyncups.length && xnsyncups[0].ts < nextSlice.start) {
-              const s = xnsyncups.shift();
-              if (wakeup === undefined && s.ts > prevSlice.end) {
-                wakeup = s;
-              }
-            }
-
-            while (xnshadows.length && xnshadows[0].ts < nextSlice.start) {
-              const w = xnshadows.shift();
-              if (shadow === undefined && w.ts > prevSlice.end) {
-                shadow = w;
-              }
-            }
-
-            while (xnharden.length && xnharden[0].ts < nextSlice.end) {
-              const h = xnharden.shift();
-              if (shadow !== undefined && 
-                  hardened === undefined && 
-                  h.ts > shadow.ts) {
-                hardened = h;
-              }
-            }
-
-            while (xnrelaxed.length && xnrelaxed[0].ts < nextSlice.start) {
-              const r = xnrelaxed.shift();
-              if (shadow !== undefined &&
-                  relaxed === undefined &&              
-                  r.ts > prevSlice.end) {
-                relaxed = r;
-              }
-            }
-
-            // Cobalt sheduler Sleep state condition  
-            let blockedReason = undefined;
-            while (xnsyncsleeps.length && xnsyncsleeps[0].ts < prevSlice.start) {
-              const r = xnsyncsleeps.shift();
-            }
-
-            if ((wakeup !== undefined &&
-                xnsyncsleeps.length &&
-                xnsyncsleeps[0].ts < wakeup.ts) || 
-                (shadow !== undefined &&
-                xnsyncsleeps.length &&
-                xnsyncsleeps[0].ts < shadow.ts)) {
-              blockedReason = xnsyncsleeps.shift();
-            } 
-
-            let relaxedReason = undefined;
-            while (xnRelaxReasons.length && xnRelaxReasons[0].ts < prevSlice.start) {
-              const r = xnRelaxReasons.shift();
-            }
-
-            if (relaxed !== undefined && 
-                xnRelaxReasons.length &&
-                xnRelaxReasons[0].ts < relaxed.ts) {
-              relaxedReason = xnRelaxReasons.shift();
-            }
-
-            // Push a sleep slice onto the slices list, interrupting its with a
-            // wakeup if appropriate.
-            const pushXnSleep = function(state) {
-              if (wakeup !== undefined) {
-                midDuration = wakeup.ts - prevSlice.end;
-              }
-
-              if (shadow !== undefined) {
-                midDuration = shadow.ts - prevSlice.end;
-              }
-
-              if (blockedReason !== undefined) {
-                args = { 'name' : thread.name, 'xnid' : thread.xnid, 'Sleep-on xnsyncid': blockedReason.xnsyncid, 'xnThread going to sleep': blockedReason.xnid};
-
-                state = COBALT_CORE_STATE.XNSUSP;
-
-                slices.push(new tr.model.xnThreadTimeSlice(
-                    thread,
-                    state, '', prevSlice.end, args, midDuration));
-
-              } else if (relaxedReason !== undefined) {
-                if (relaxed !== undefined) {
-                  args = { 'name' : thread.name, 'xnid' : thread.xnid, 'Relaxed to [ROOT]/tid': relaxedReason.fromTid, 'Reason': relaxedReason.xnreason, 'xnstate': tr.model.formatXnThreadState(relaxed.xnstate), 'xnstatus': relaxed.xnstatus, 'xninfo': relaxed.xninfo};
-                  midDuration = shadow.ts - relaxed.ts;
-                } else {
-                  args = { 'name' : thread.name, 'xnid' : thread.xnid, 'Relaxed to [ROOT]/tid': relaxedReason.fromTid, 'Reason': relaxedReason.xnreason };                  
-                }
-
-                state = COBALT_CORE_STATE.XNRELAX;
-/* Todo: Add relaxed reasons
-                if (relaxedReason.xnstatus) {
-                  switch (state) {
-                    case SCHEDULING_STATE.UNINTR_SLEEP:
-                      state = SCHEDULING_STATE.UNINTR_SLEEP_IO;
-                      break;
-                    case SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL:
-                      state = SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL_IO;
-                      break;
-                    case SCHEDULING_STATE.UNINTR_SLEEP_WAKING:
-                      state = SCHEDULING_STATE.UNINTR_SLEEP_WAKE_KILL_IO;
-                      break;
-                    default:
-                  }
-                }
-*/
-                slices.push(new tr.model.xnThreadTimeSlice(
-                    thread,
-                    state, '', prevSlice.end, args, midDuration));
-              } else {
-                slices.push(new tr.model.xnThreadTimeSlice(
-                    thread,
-                    state, '', prevSlice.end, args, midDuration));
-              }
-
-              if (shadow !== undefined) {
-                if (hardened !== undefined) {
-
-                  wakeupTS = shadow.ts;
-                  wakeupDuration = nextSlice.start - shadow.ts;
-
-                  runTS = hardened.ts;
-                  runDuration = nextSlice.end - hardened.ts;
-
-                  args = { 'name' : thread.name, 'xnid' : thread.xnid, 'shadowed from [ROOT]/tid': shadow.fromTid, 'xnstate': tr.model.formatXnThreadState(shadow.xnstate), 'xninfo': shadow.xninfo};
-                  slices.push(new tr.model.xnThreadTimeSlice(
-                      thread, COBALT_CORE_STATE.XNREADY, '',
-                      wakeupTS, args, wakeupDuration));
-
-                  slices.push(new tr.model.xnThreadTimeSlice(
-                      thread, COBALT_CORE_STATE.XNRELAX, '',
-                      nextSlice.start, args, hardened.ts - nextSlice.start));
-
-                  args = { 'name' : thread.name, 'xnid' : thread.xnid, 'hardened from [ROOT]/tid': hardened.fromTid, 'xnstate': tr.model.formatXnThreadState(hardened.xnstated), 'xninfo': shadow.xninfo};
-                  shadow = undefined;
-                  hardened = undefined;
-
-                } else {
-
-                  wakeupTS = shadow.ts;
-                  wakeupDuration = nextSlice.start - shadow.ts;
-
-                  runTS = nextSlice.start;
-                  runDuration = nextSlice.duration;
-
-                  args = { 'name' : thread.name, 'xnid' : thread.xnid, 'shadowed from [ROOT]/tid': shadow.fromTid, 'xnstate': tr.model.formatXnThreadState(shadow.xnstate), 'xninfo': shadow.xninfo};
-                  slices.push(new tr.model.xnThreadTimeSlice(
-                      thread, COBALT_CORE_STATE.XNREADY, '',
-                      wakeupTS, args, wakeupDuration));
-                  shadow = undefined;                  
-
-                }
-              } else if (wakeup !== undefined) {
-                wakeupDuration = nextSlice.start - wakeup.ts;
-                wakeupTS = wakeup.ts;
-
-                runDuration = nextSlice.duration;
-                runTS = nextSlice.start;
-
-                args = { 'name' : thread.name, 'xnid' : thread.xnid, 'Woken-up by xnsyncid': wakeup.xnsyncid};
-                slices.push(new tr.model.xnThreadTimeSlice(
-                    thread, COBALT_CORE_STATE.XNREADY, '',
-                    wakeupTS, args, wakeupDuration));
-
-                wakeup = undefined;
-              } else {
-                wakeupTS = nextSlice.start;
-                wakeupDuration = 0;
-
-                runTS = nextSlice.start;
-                runDuration = nextSlice.duration;
-              }
-            };
-
-            if (prevSlice.args.xnStateWhenDescheduled === 'S') { //Forcibly suspended.
-              pushXnSleep(COBALT_CORE_STATE.XNSUSP);
-              //wakeupDuration = midDuration;
-              //wakeupTS = prevSlice.end;
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'w' ||
-                       prevSlice.args.xnStateWhenDescheduled === 'W') { //Waiting for a resource, with or without timeout.
-              pushXnSleep(COBALT_CORE_STATE.XNPEND);
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'D') { //Delayed (without any other wait condition).
-              pushXnSleep(COBALT_CORE_STATE.XNDELAY);
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'R' ) { //Runnable
-              slices.push(new tr.model.xnThreadTimeSlice(
-                    thread, COBALT_CORE_STATE.XNREADY, '',
-                    prevSlice.end, args, midDuration));
-              wakeupDuration = midDuration;
-              wakeupTS = prevSlice.end;
-              runDuration = nextSlice.duration;              
-              runTS = nextSlice.start;
-            } else if (prevSlice.args.xnStateWhenDescheduled === '-' ||
-                       prevSlice.args.xnStateWhenDescheduled === 'U') { //Unstarted or dormant.
-              pushXnSleep(COBALT_CORE_STATE.XNDORMANT);
-           } else if (prevSlice.args.xnStateWhenDescheduled === 'X') { //Relaxed shadow.
-              pushXnSleep(COBALT_CORE_STATE.XNRELAX);
-           } else if (prevSlice.args.xnStateWhenDescheduled === 'H') { //Held in emergency
-              slices.push(new tr.model.xnThreadTimeSlice(
-                    thread, COBALT_CORE_STATE.XNHELD, '',
-                    prevSlice.end, args, midDuration));
-              wakeupDuration = midDuration;
-              wakeupTS = prevSlice.end;
-              runDuration = nextSlice.duration;              
-              runTS = nextSlice.start;
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'b') { //Priority boost undergoing
-              slices.push(new tr.model.xnThreadTimeSlice(
-                    thread, COBALT_CORE_STATE.XNBOOST, '',
-                    prevSlice.end, args, midDuration));
-              wakeupDuration = midDuration;
-              wakeupTS = prevSlice.end;
-              runDuration = nextSlice.duration;              
-              runTS = nextSlice.start;
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'T') { //Ptraced and stopped.
-              slices.push(new tr.model.xnThreadTimeSlice(
-                    thread, COBALT_CORE_STATE.XNSSTEP, '',
-                    prevSlice.end, args, midDuration));
-              wakeupDuration = midDuration;
-              wakeupTS = prevSlice.end;
-              runDuration = nextSlice.duration;              
-              runTS = nextSlice.start;
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'l') { //Locks scheduler
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'r') { //Undergoes round-robin.
-            } else if (prevSlice.args.xnStateWhenDescheduled === 't') { //Runtime mode errors notified.
-            } else if (prevSlice.args.xnStateWhenDescheduled === 'L') { //Lock breaks trapped.
-              pushXnSleep(COBALT_CORE_STATE.XNTRAPLB);
-            } else {
-              slices.push(new tr.model.xnThreadTimeSlice(
-                  thread, COBALT_CORE_STATE.w, '',
-                  prevSlice.end, args, midDuration));
-              wakeupDuration = midDuration;
-              wakeupTS = prevSlice.end;
-              runDuration = nextSlice.duration;              
-              runTS = nextSlice.start;
-              this.model_.importWarning({
-                type: 'parse_error',
-                message: 'Unrecognized sleep state: ' +
-                    prevSlice.args.xnStateWhenDescheduled
-              });
-            }
             const sliceTask = new tr.model.ThreadSlice('', thread.name,
                 ColorScheme.getColorIdForGeneralPurposeString(thread.name),
                 wakeupTS,
@@ -1681,11 +1600,79 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
                 wakeupDuration + nextSlice.duration, nextSlice.start, nextSlice.duration );
             thread.sliceGroup.pushSlice(sliceTask);
 
-            const runningSlice = new tr.model.xnThreadTimeSlice(
-                thread, COBALT_CORE_STATE.XNUSER, '',
+          } else {
+
+            let runState = nextSlice.args.xnStateWhenDescheduled;
+
+            /*
+            * PUSH a Run slice onto the slices list, interrupting its with a
+            * goRelax / Hardened if appropriate.
+            */
+            const pushXnRun = function(state) {
+
+              args['mode'] = 'Running from PRIMARY';
+
+              // hardened PRIMARY handle  
+              if (hardened !== undefined) {
+                
+                runState = tr.model.formatXnThreadState(hardened.xnstate);
+                
+                args['mode'] = 'Hardened To PRIMARY';
+                args['state'] = tr.model.formatXnThreadState(hardened.xnstate);
+                args['xninfo'] = hardened.xninfo;
+
+                cobaltTS = hardened.ts;
+                hardened = undefined;
+              }
+
+              // goRelax PRIMARY call 
+              if (relaxedReason !== undefined ) {
+                args['mode'] = 'Relaxed to SECONDARY from' + relaxedReason.fromTid;
+                args['reason'] = relaxedReason.xnreason;
+                relaxedReason = undefined;
+                cobaltDuration = nextSlice.end - relaxedReason.ts;
+              }
+
+              /* PRIMARY scheduler */
+              const runningSlice = new tr.model.xnThreadTimeSlice(
+                thread, state, '',
                 runTS, args, runDuration);
-            runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
-            slices.push(runningSlice);
+              runningSlice.cpuOnWhichThreadWasRunning = prevSlice.cpu;
+              slices.push(runningSlice);
+
+            };
+
+            let cobaltTS = nextSlice.start;
+            let cobaltDuration = nextSlice.duration;
+
+            if (runState.match('i')) { // Non real-time shadow 
+              pushXnRun(COBALT_CORE_STATE.XNWEAK);
+            } else if (runState.match('u')) { // Shadow thread running in userland
+              pushXnRun(COBALT_CORE_STATE.XNUSER);
+            } else if (runState.match('m')) { // Mapped to a linux task.
+              pushXnRun(COBALT_CORE_STATE.XNMAPPED);
+            } else if (runState.match('I')) { // ROOT 
+              pushXnRun(COBALT_CORE_STATE.XNROOT);
+            } else {
+              pushXnRun(COBALT_CORE_STATE.XNKNOWN);
+              this.model_.importWarning({
+                type: 'parse_error',
+                message: 'Unrecognized Running state: ' +
+                runState
+              });
+            }
+            args = { 'name' : 'cobalt:' + thread.name, 
+                     'tid' : thread.tid,
+                     'prio' : nextSlice.args.prio,
+                     'stateWhenDescheduled': nextSlice.args.stateWhenDescheduled , 
+                     'primaryStateWhenDescheduled': runState };
+
+            const sliceTask = new tr.model.ThreadSlice('', 'cobalt:' + thread.name,
+                ColorScheme.getColorIdForGeneralPurposeString('cobalt:' + thread.name),
+                wakeupTS,
+                args,
+                wakeupDuration + nextSlice.duration, nextSlice.start, nextSlice.duration);
+            thread.sliceGroup.pushSlice(sliceTask);
           }
         }
         thread.timeSlices = slices;
