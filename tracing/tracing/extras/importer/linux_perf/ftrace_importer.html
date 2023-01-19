@@ -125,7 +125,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
@@ -148,7 +148,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const lineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGIDpatch = function(line) {
     const groups = lineREWithTGIDpatch.exec(line);
@@ -173,7 +173,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const lineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX*.][Nnp.][Hhs~.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithIRQInfo = function(line) {
     const groups = lineREWithIRQInfo.exec(line);
@@ -189,6 +189,51 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   };
   TestExports.lineParserWithIRQInfo = lineParserWithIRQInfo;
 
+  // Matches the default trace record in 5.15 and later (includes migrate-disable):
+  //          <idle>-0       [004] dNh..   816.476867: sched_wakeup: comm=kworker/u16:3 pid=55 prio=120 target_cpu=004
+    const lineREWithMigrateDisable = new RegExp(
+      '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
+      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.][0-9a-f.]' +
+      '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
+  const lineParserWithMigrateDisable = function(line) {
+    const groups = lineREWithMigrateDisable.exec(line);
+    if (!groups) return groups;
+    return {
+      threadName: groups[1],
+      pid: groups[2],
+      cpuNumber: groups[3],
+      timestamp: groups[4],
+      eventName: groups[5],
+      details: groups[6]
+    };
+  };
+  TestExports.lineParserWithMigrateDisable = lineParserWithMigrateDisable;
+
+  // Matches the default trace record with TGID in 5.15 and later (includes migrate-disable):
+  //          <idle>-0       (-------) [004] dNh..   816.476867: sched_wakeup: comm=kworker/u16:3 pid=55 prio=120 target_cpu=004
+    const lineREWithTGIDMigrateDisable = new RegExp(
+      '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
+      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.][0-9a-f.]' +
+      '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
+    const lineParserWithTGIDMigrateDisable = function(line) {
+    const groups = lineREWithTGIDMigrateDisable.exec(line);
+    if (!groups) return groups;
+
+    let tgid = groups[3];
+    if (tgid[0] === '-') tgid = undefined;
+
+    return {
+      threadName: groups[1],
+      pid: groups[2],
+      tgid,
+      cpuNumber: groups[4],
+      timestamp: groups[5],
+      eventName: groups[6],
+      details: groups[7]
+    };
+  };
+  TestExports.lineParserWithTGIDMigrateDisable = lineParserWithTGIDMigrateDisable;
+
   // PREMPT_RT : Matches the trace record in 3.2 and later with the print-tgid option:
   // withTGID
   //          <idle>-0     [000] (-----) dN..3..  2484.980174: sched_wakeup: comm=ktimersoftd/0 pid=8 prio=98 target_cpu=000
@@ -199,7 +244,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // what userland calls a thread ID).
   const PREEMPT_RTlineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGID = function(line) {
     const groups = PREEMPT_RTlineREWithTGID.exec(line);
@@ -222,7 +267,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const PREEMPT_RTlineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGIDpatch = function(line) {
     const groups = PREEMPT_RTlineREWithTGIDpatch.exec(line);
@@ -247,7 +292,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const PREEMPT_RTlineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dX*.][Nnp.][NnLp.][Hhs~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithIRQInfo = function(line) {
     const groups = PREEMPT_RTlineREWithIRQInfo.exec(line);
@@ -312,7 +357,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (line[0] === '{') return false;
     if (lineREWithTGID.test(line)) return lineParserWithTGID;
     if (lineREWithTGIDpatch.test(line)) return lineParserWithTGIDpatch;
+    if (lineREWithTGIDMigrateDisable.test(line)) return lineParserWithTGIDMigrateDisable;
     if (lineREWithIRQInfo.test(line)) return lineParserWithIRQInfo;
+    if (lineREWithMigrateDisable.test(line)) return lineParserWithMigrateDisable;
     if (PREEMPT_RTlineREWithTGID.test(line)) return PREEMPT_RTlineParserWithTGID;
     if (PREEMPT_RTlineREWithTGIDpatch.test(line)) return PREEMPT_RTlineParserWithTGIDpatch;
     if (PREEMPT_RTlineREWithIRQInfo.test(line)) return PREEMPT_RTlineParserWithIRQInfo;
