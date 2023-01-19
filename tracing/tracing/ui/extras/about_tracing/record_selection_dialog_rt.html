@@ -1203,7 +1203,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       if (this.perfRecordFilter !== undefined)
         perfEvtSuffix = '?F' + this.perfRecordFilter;
 
-      if (!perfEvt.startsWith('perf-None') &&
+      if ( perfEvt !== undefined && 
+          !perfEvt.startsWith('perf-None') &&
           !perfEvt.endsWith('!-1')) {
         return [ perfEvt + this.perfRecordGraph + perfEvtSuffix ];
       } else {
