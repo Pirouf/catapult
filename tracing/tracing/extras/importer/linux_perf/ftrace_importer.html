@@ -518,7 +518,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       this.lazyInit_();
       this.forEachLine_(function(text, eventBase, cpuNumber, pid, ts) {
         const eventName = eventBase.eventName;
-        if (eventName !== 'tracing_mark_write' && eventName !== '0') return;
+        if (eventName !== 'tracing_mark_write' && eventName !== 'bpf_trace_printk' && eventName !== '0') return;
 
         if (traceEventPtpClockSyncRE.exec(eventBase.details)) {
           this.traceClockPtpSyncEvent_(eventName, cpuNumber, pid, ts, eventBase);
@@ -2786,11 +2786,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     registerDefaultHandlers_() {
       this.registerEventHandler('tracing_mark_write',
           FTraceImporter.prototype.traceMarkingWriteEvent_.bind(this));
+      this.registerEventHandler('bpf_trace_printk',
+          FTraceImporter.prototype.traceMarkingWriteEvent_.bind(this));
       // NB: old-style trace markers; deprecated
       this.registerEventHandler('0',
           FTraceImporter.prototype.traceMarkingWriteEvent_.bind(this));
       // Register dummy clock sync handlers to avoid warnings in the log.
       this.registerEventHandler('tracing_mark_write:trace_event_clock_sync',
+          function() { return true; });
+      this.registerEventHandler('bpf_trace_printk:trace_event_clock_sync',
           function() { return true; });
       this.registerEventHandler('0:trace_event_clock_sync',
           function() { return true; });

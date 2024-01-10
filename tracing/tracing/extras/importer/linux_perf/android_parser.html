@@ -28,6 +28,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     importer.registerEventHandler('tracing_mark_write:android',
         AndroidParser.prototype.traceMarkWriteAndroidEvent.bind(this));
+    importer.registerEventHandler('bpf_trace_printk:android',
+        AndroidParser.prototype.traceMarkWriteAndroidEvent.bind(this));
     importer.registerEventHandler('0:android',
         AndroidParser.prototype.traceMarkWriteAndroidEvent.bind(this));
 
