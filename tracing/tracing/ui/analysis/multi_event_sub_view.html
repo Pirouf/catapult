@@ -69,20 +69,26 @@ found in the LICENSE file.
 
 tr.exportTo('tr.ui.analysis', function() {
   const EVENT_FIELD = [
-    {key: 'start', label: 'Start'},
+    {key: 'start', label: 'Start Interval'},
     {key: 'cpuDuration', label: 'CPU Duration'},
     {key: 'duration', label: 'Duration'},
     {key: 'cpuSelfTime', label: 'CPU Self Time'},
     {key: 'selfTime', label: 'Self Time'}
   ];
 
-  function buildDiagnostics_(slice) {
+  function buildDiagnostics_(slice, opt_interval) {
     const diagnostics = {};
     for (const item of EVENT_FIELD) {
       const fieldName = item.key;
       if (slice[fieldName] === undefined) continue;
-      diagnostics[fieldName] = new tr.v.d.Scalar(new tr.b.Scalar(
-          tr.b.Unit.byName.timeDurationInMs, slice[fieldName]));
+      if (opt_interval && fieldName === 'start') {
+        diagnostics[fieldName] = new tr.v.d.Scalar(new tr.b.Scalar(
+              tr.b.Unit.byName.timeDurationInMs, slice[fieldName]));
+        diagnostics['interval'] = new tr.v.d.Scalar(new tr.b.Scalar(
+              tr.b.Unit.byName.timeDurationInMs, opt_interval));
+      } else
+        diagnostics[fieldName] = new tr.v.d.Scalar(new tr.b.Scalar(
+            tr.b.Unit.byName.timeDurationInMs, slice[fieldName]));
     }
     diagnostics.args = new tr.v.d.GenericSet([slice.args]);
 
@@ -106,6 +112,7 @@ tr.exportTo('tr.ui.analysis', function() {
     created() {
       this.currentSelection_ = undefined;
       this.eventsHaveDuration_ = true;
+      this.eventsHaveInterval_ = false;
       this.eventsHaveSubRows_ = true;
     },
 
@@ -151,6 +158,15 @@ tr.exportTo('tr.ui.analysis', function() {
       if (this.isAttached) this.updateContents_();
     },
 
+    get eventsHaveInterval() {
+      return this.eventsHaveInterval_;
+    },
+
+    set eventsHaveInterval(eventsHaveInterval) {
+      this.eventsHaveInterval_ = eventsHaveInterval;
+      if (this.isAttached) this.updateContents_();
+    },
+
     get eventsHaveSubRows() {
       return this.eventsHaveSubRows_;
     },
@@ -188,6 +204,49 @@ tr.exportTo('tr.ui.analysis', function() {
       return histogram;
     },
 
+    buildHistogramOfStartIntervals_() {
+      // Histogram-> start Slice_n[start] does not mean much
+      // Histogram->Intervals from Slice_n-1[start] to Slice[start] is more meaningfull
+      this.eventsHaveInterval_ = true;
+      let selectedKey = 'start'
+      let prevSliceStart = undefined;
+      let leftBoundary = Number.MAX_VALUE;
+      let rightBoundary = tr.b.math.Statistics.max(
+          this.currentSelection_,
+          function(value) {
+            if (!prevSliceStart) {
+              prevSliceStart = value[selectedKey];
+              return 0;
+            }
+            let lastStartInterval = value[selectedKey] - prevSliceStart;
+            leftBoundary = Math.min(leftBoundary, lastStartInterval);
+            prevSliceStart = value[selectedKey];
+            return lastStartInterval;
+          });
+
+      if (leftBoundary === rightBoundary) rightBoundary += 1;
+      const histogram = new tr.v.Histogram(
+          '',
+          tr.b.Unit.byName.timeDurationInMs,
+          tr.v.HistogramBinBoundaries.createLinear(
+              leftBoundary, rightBoundary,
+              Math.ceil(Math.sqrt(this.currentSelection_.length))));
+      histogram.customizeSummaryOptions({
+        sum: false,
+        percentile: [0.5, 0.9],
+      });
+      prevSliceStart = undefined;
+      for (const slice of this.currentSelection_) {
+        if (prevSliceStart && prevSliceStart < slice[selectedKey]) {
+          let lastStartInterval = slice[selectedKey]-prevSliceStart;
+          histogram.addSample(lastStartInterval,
+            buildDiagnostics_(slice, lastStartInterval));
+        }
+        prevSliceStart = slice[selectedKey];
+      }
+      return histogram;
+    },
+
     updateContents_() {
       const selection = this.currentSelection_;
       if (!selection) return;
@@ -199,6 +258,7 @@ tr.exportTo('tr.ui.analysis', function() {
         showTotals: numTitles > 1,
         eventsByTitle,
         eventsHaveDuration: this.eventsHaveDuration_,
+        eventsHaveInterval: this.eventsHaveInterval_,
         eventsHaveSubRows: this.eventsHaveSubRows_
       });
 
@@ -207,8 +267,16 @@ tr.exportTo('tr.ui.analysis', function() {
       if (numTitles === 1) {
         this.$.radioPicker.style.display = 'block';
         this.$.histogramContainer.style.display = 'flex';
-        this.$.histogramSpan.build(
-            this.buildHistogram_(this.$.radioPicker.selectedKey));
+        if (this.$.radioPicker.selectedKey == 'start' )
+          this.$.histogramSpan.build(
+              this.buildHistogramOfStartIntervals_(),
+              undefined,
+              this.$.radioPicker.selectedKey);
+        else
+          this.$.histogramSpan.build(
+              this.buildHistogram_(this.$.radioPicker.selectedKey),
+              undefined,
+              this.$.radioPicker.selectedKey);
         if (this.$.histogramSpan.histogram.numValues === 0) {
           this.$.histogramContainer.style.display = 'none';
         }

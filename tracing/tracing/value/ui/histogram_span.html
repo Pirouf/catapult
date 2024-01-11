@@ -99,6 +99,7 @@ tr.exportTo('tr.v.ui', function() {
       this.mouseDownBin_ = undefined;
       this.prevBrushedBinRange_ = new tr.b.math.Range();
       this.anySampleDiagnostics_ = false;
+      this.sortSampleDiagnosticsBy_ = 'duration';
       this.canMergeSampleDiagnostics_ = true;
       this.mwuResult_ = undefined;
     },
@@ -142,7 +143,7 @@ tr.exportTo('tr.v.ui', function() {
       if (this.isAttached) this.updateContents_();
     },
 
-    build(histogram, opt_referenceHistogram) {
+    build(histogram, opt_referenceHistogram, opt_sortby) {
       this.histogram_ = histogram;
       this.$.metric_diagnostics.histogram = histogram;
       this.$.sample_diagnostics.histogram = histogram;
@@ -159,6 +160,8 @@ tr.exportTo('tr.v.ui', function() {
       for (const bin of this.histogram.allBins) {
         if (bin.diagnosticMaps.length > 0) {
           this.anySampleDiagnostics_ = true;
+          if (opt_sortby)
+            this.sortSampleDiagnosticsBy_ = opt_sortby;
           break;
         }
       }
@@ -410,6 +413,18 @@ tr.exportTo('tr.v.ui', function() {
       maps = maps.sort(function(a,b) {
         return b.get("duration").value.value-a.get("duration").value.value
       })
+
+      if (this.anySampleDiagnostics_) {
+        // sort Sample Diagnostics outliers by SelectedKey
+        if (this.sortSampleDiagnosticsBy_ === 'start')
+          maps = maps.sort(function(a,b) {
+            return b.get('interval').value.value - a.get('interval').value.value
+          })
+        else if (this.sortSampleDiagnosticsBy_ === 'cpuDuration')
+          maps = maps.sort(function(a,b) {
+            return b.get('cpuDuration').value.value - a.get('cpuDuration').value.value
+          })
+      }
 
       if (this.$.merge_sample_diagnostics.checked !==
           this.viewState.mergeSampleDiagnostics) {
