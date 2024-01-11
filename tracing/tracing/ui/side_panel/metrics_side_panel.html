@@ -66,7 +66,7 @@ tr.exportTo('tr.ui', function() {
       this.metrics_.sort((x, y) => x.label.localeCompare(y.label));
 
       this.settingsKey_ = 'metrics-side-panel-metric-name';
-      this.currentMetricName_ = 'responsivenessMetric';
+      this.currentMetricName_ = 'clockSyncLatencyMetric';
       const metricSelector = tr.ui.b.createSelector(
           this, 'currentMetricName_',
           this.settingsKey_,
