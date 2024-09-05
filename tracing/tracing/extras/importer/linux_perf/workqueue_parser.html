@@ -38,11 +38,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   // Matches the workqueue_execute_start record
   //  workqueue_execute_start: work struct c7a8a89c: function MISRWrapper
-  const workqueueExecuteStartRE = /work struct (.+): function (\S+)/;
+  // workqueue_execute_start: work struct 00000000f3b5811a: function pm_runtime_work
+  const workqueueExecuteStartRE = /work struct ([\da-fA-F]+): function (\S+)/;
 
   // Matches the workqueue_execute_start record
   //  workqueue_execute_end: work struct c7a8a89c
-  const workqueueExecuteEndRE = /work struct (.+)/;
+  //  workqueue_execute_end: work struct 00000000f3b5811a: function pm_runtime_work
+  const workqueueExecuteEndRE = /work struct ([\da-fA-F]+).*/;
 
   const unknownThreadName = '<...>';
 
@@ -50,7 +52,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     __proto__: Parser.prototype,
 
     struct2task(structid) {
-      return this.kworkerlookup[structid];
+	if (this.kworkerlookup === undefined)
+	    return 0;
+	return this.kworkerlookup[structid];
     },
 
     registerWorkertask(structid, taskname, tid, ts) {
