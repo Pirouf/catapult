@@ -498,6 +498,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   const syncRE = new RegExp('sync\/.*');
   const spiRE = new RegExp('spi\/.*');
   const i2cRE = new RegExp('i2c\/.*');
+  const v4l2RE = new RegExp('v4l2\/.*');
+  const bpfRE = new RegExp('bpf_trace\/.*');
 
   const DEFAULT_PRESETS = [
     {title: 'Linux Preempt/RT Kernel',
@@ -576,6 +578,23 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       functionFilter: [
       ]
     },
+    {title: 'Linux IPU6/GMSL devices',
+      categoryFilter: [
+        v4l2RE,
+        i2cRE,
+        bpfRE,
+      ],
+      modeFilter: 'record-until-full',
+      optionFilter: [
+        'record-tgid!1',
+        'trace_clock!global',
+        'current_tracer!nop',
+        'bpf_tracer!ipu6-isys',
+        'buffer_size_kb!100000',
+      ],
+      functionFilter: [
+      ]
+    },
     {title: 'Linux UI Rendering',
       categoryFilter: [
         i915RE,
@@ -598,7 +617,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       ]},
       {title: 'Linux PM runtime',
       categoryFilter: [
-        //rpmRE,
+        rpmRE,
         powerREwithWakeup,
         allSchedRE,
         allClkRE,
@@ -832,6 +851,27 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     },
     set tracingRecordMode(value) {
       this.tracingRecordMode_ = value;
+    },
+
+    get bpf_tracer() {
+      if (this.tracingOptionsContainerEl_ == undefined)
+        return undefined; 
+      const selectors = Polymer.dom(this.tracingOptionsContainerEl_).querySelectorAll(
+                  'select');
+      const selLength = selectors.length;
+      const categories = [];
+      for (let i = 0; i < selLength; ++i) {
+        const selector = selectors[i];
+        if (selector.name === 'bpf_tracer') {
+          return selector.selectedValue;
+        }
+      } 
+    },
+
+    set bpf_tracer(value) {
+
+      this.bpf_tracer_ = value;
+
     },
 
     get current_tracer() {
