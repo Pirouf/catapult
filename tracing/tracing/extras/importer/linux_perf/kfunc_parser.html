@@ -31,6 +31,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     importer.registerEventHandler('graph_ret',
         KernelFuncParser.prototype.traceKernelFuncReturnEvent.
             bind(this));
+    importer.registerEventHandler('bpf_trace_printk:graph_ent',
+        KernelFuncParser.prototype.traceKernelFuncEnterEvent.
+            bind(this));
+    importer.registerEventHandler('bpf_trace_printk:graph_ret',
+        KernelFuncParser.prototype.traceKernelFuncReturnEvent.
+            bind(this));
 
     this.model_ = importer.model_;
     this.ppids_ = {};
@@ -40,17 +46,37 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const funcEnterRE = new RegExp('func=(.+)');
   TestExports.funcEnterRE = funcEnterRE;
+  const funcArgsEnterRE = new RegExp('func=(.+) args=(.+)');
+  TestExports.funcArgsEnterRE = funcArgsEnterRE;
+
+  function parseArgs(argsString) {
+    const args = {};
+    if (argsString) {
+      const argsArray = argsString.split(';');
+      for (let i = 0; i < argsArray.length; ++i) {
+        const parts = argsArray[i].split('=');
+        if (parts[0]) {
+          args[parts.shift()] = parts.join('=');
+        }
+      }
+    }
+    return args;
+  }
 
   KernelFuncParser.prototype = {
     __proto__: LinuxPerfParser.prototype,
 
     traceKernelFuncEnterEvent(eventName, cpuNumber, pid, ts,
         eventBase) {
-      const eventData = funcEnterRE.exec(eventBase.details);
+      let eventData = funcArgsEnterRE.exec(eventBase.details);
+      if (!eventData) eventData = funcEnterRE.exec(eventBase.details);
       if (!eventData) return false;
 
+      let args = {};
       const name = eventData[1];
-
+      if (eventData.length > 1)
+	  args = parseArgs(eventData[2]);
+	    
       let thread = this.importer.threadsByLinuxPid[pid];
       if (!thread && eventBase.tgid) {
         const tgid = parseInt(eventBase.tgid);
@@ -71,7 +97,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         return false;
       }
 
-      const slice = slices.beginSlice(null, name, ts, {});
+      const slice = slices.beginSlice(null, name, ts, args);
 
       return true;
     },
