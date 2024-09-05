@@ -61,7 +61,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
              category, name);
       const slice = new asyncSliceConstructor(
           category, name,
-          ColorScheme.getColorIdForGeneralPurposeString(name), ts, args);
+          ColorScheme.getColorIdForGeneralPurposeString(cookie), ts, args);
       const key = category + ':' + name + ':' + cookie;
       slice.id = cookie;
       slice.startThread = thread;
@@ -84,7 +84,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         // No async slices w/ this key have been started.
         return;
       }
-
       for (const arg in args) {
         if (slice.args[arg] !== undefined) {
           this.model_.importWarning({
@@ -96,7 +95,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         }
         slice.args[arg] = args[arg];
       }
-
       slice.endThread = thread;
       slice.duration = ts - slice.start;
       slice.startThread.asyncSliceGroup.push(slice);
@@ -189,8 +187,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         case 'S': {
           const ppid = parseInt(eventData[1]);
           const name = eventData[2];
-          const cookie = parseInt(eventData[3]);
+          let cookie = parseInt(eventData[3]);
           const args = parseArgs(eventData[4]);
+          if(isNaN(cookie)) {
+		cookie = 0;
+		args['call'] = eventData[3];
+	  }
           let category = eventData[5];
           if (category === undefined) category = 'userspace';
 
@@ -210,8 +212,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           const ppid = parseInt(eventData[1]);
 
           const name = eventData[2];
-          const cookie = parseInt(eventData[3]);
+          let cookie = parseInt(eventData[3]);
           const args = parseArgs(eventData[4]);
+          if(isNaN(cookie)) {
+		cookie = 0;
+		args['call'] = eventData[3];
+	  }
           let category = eventData[5];
           if (category === undefined) category = 'userspace';
 
