@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
+
+<script>
+'use strict';
+
+/**
+ * @fileoverview Parses v4l2 driver events in the Linux event trace format.
+ */
+tr.exportTo('tr.e.importer.linux_perf', function() {
+  const ColorScheme = tr.b.ColorScheme;
+  const Parser = tr.e.importer.linux_perf.Parser;
+
+  /**
+   * Parses linux v4l2 trace events.
+   * @constructor
+   */
+  function V4l2Parser(importer) {
+    Parser.call(this, importer);
+
+    importer.registerEventHandler('v4l2_qbuf',
+        V4l2Parser.prototype.v4l2QueueEvent.bind(this));
+    importer.registerEventHandler('v4l2_dqbuf',
+        V4l2Parser.prototype.v4l2DequeueEvent.bind(this));
+  }
+
+  // Matches the v4l2_qbuf and v4l2_dqbuf records
+  // v4l2_dqbuf: minor = 9, index = 0, type = VIDEO_CAPTURE_MPLANE, bytesused = 0, flags = MAPPED|ERROR|TIMESTAMP_UNKNOWN|TIMESTAMP_MONOTONIC, field = NONE, timestamp = 963342975000, timecode = { type = 0x0, flags = , frames = 0, seconds = 0, minutes = 0, hours = 0, userbits = { 0 0 0 0 } }, sequence = 0
+  // v4l2_qbuf: minor = 9, index = 0, type = VIDEO_CAPTURE_MPLANE, bytesused = 0, flags = MAPPED|QUEUED|TIMESTAMP_UNKNOWN|TIMESTAMP_MONOTONIC, field = NONE, timestamp = 0, timecode = { type = 0x0, flags = , frames = 0, seconds = 0, minutes = 0, hours = 0, userbits = { 0 0 0 0 } }, sequence = 0
+
+  const v4l2QueueRE = new RegExp(
+      'minor = (\\d+), index = (\\d+), type = ([_\\da-zA-Z]+), bytesused = (\\d+), ' + 
+      'flags = ([_|A-Z]+), field = ([_|A-Z]+), timestamp = (\\d+), ' +
+      'timecode = { (.*) }, ' +
+      'sequence = (\\d+)');
+
+  V4l2Parser.prototype = {
+    __proto__: Parser.prototype,
+
+    /**
+     * Parses v4l2 events and sets up state in the importer.
+     */
+    v4l2QueueEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = v4l2QueueRE.exec(eventBase.details);
+      if (!event) return false;
+
+      const minor = parseInt(event[1]);
+      const index = parseInt(event[2]);
+      const type = event[3];
+      const bytesused = event[4];
+      const flags = event[5];
+      const field = event[6];
+      const data_ts = event[7];
+      const args = event[8];
+      const seq = parseInt(event[9]);
+	    
+      const pthread = this.importer.getOrCreatePseudoDeviceThread(
+	  '/dev/video' + minor + ':' + index, '/dev v4l2 devices');
+      //const thread = this.importer.threadsByLinuxPid[pid];
+
+      const thread = pthread.thread;
+      const process = thread.parent;
+      const scopeId = { 'scope' : type, 'id': minor+'.'+index, 'key' : minor, 'index' : index};
+      const objInstName = '/dev/video' + minor;
+
+      let lastInstance = undefined;
+      const instances = process.objects.getAllInstancesNamed(objInstName);
+      if (instances !== undefined) {
+        const len = instances.length;
+        if (len > 0) {
+          lastInstance = instances[len - 1];
+          if ( (lastInstance.scopedId.scope !== scopeId.scope) || 
+               (lastInstance.scopedId.id !== scopeId.id) )
+            process.objects.idWasDeleted(lastInstance.scopedId,'v4l2',objInstName,ts);
+        }
+      }
+      pthread.openSliceTS = ts;
+      return true;
+    },
+
+    v4l2DequeueEvent(eventName, cpuNumber, pid, ts, eventBase) {
+      const event = v4l2QueueRE.exec(eventBase.details);
+      if (!event) return false;
+
+
+      const minor = parseInt(event[1]);
+      const index = parseInt(event[2]);
+      const type = event[3];
+      const bytesused = event[4];
+      const flags = event[5];
+      const field = event[6];
+      const data_ts = event[7];
+      const args = event[8];
+      const seq = parseInt(event[9]);
+	    
+      const pthread = this.importer.getOrCreatePseudoDeviceThread(
+	  '/dev/video' + minor + ':' + index, '/dev v4l2 devices');
+
+      if (!pthread.openSliceTS) return true;
+	
+      let queue_ts = pthread.openSliceTS;
+      let dequeue_ts = ts;	
+
+      const thread = pthread.thread;
+      const process = thread.parent;
+      const scopeId = { 'scope' : type, 'id': minor+'.'+index, 'key' : minor, 'index' : index};
+      const objInstName = '/dev/video' + minor;
+	
+      const snapshot = process.objects.addSnapshot(
+          scopeId, 'v4l2', objInstName, dequeue_ts, { 'index': index, 'type': type, 'flags': flags, 'field': field, 'seq_num' : seq, 'bytesused' : bytesused}, objInstName);
+      snapshot.info = new tr.model.EventInfo('v4l2 type '+ type, '');
+      snapshot.objectInstance.colorId = tr.b.ColorScheme.getColorIdForReservedName('grey');
+      snapshot.objectInstance.creationTsWasExplicit = true;
+      snapshot.objectInstance.creationTs = queue_ts;
+      snapshot.objectInstance.deletionTs = dequeue_ts;
+      snapshot.objectInstance.deletionTsWasExplicit = true;
+
+      process.sortIndex = minor;
+
+      pthread.openSliceTS = undefined;
+
+      return true;
+    },
+  };
+
+  Parser.register(V4l2Parser);
+
+  return {
+      V4l2Parser,
+  };
+});
+</script>

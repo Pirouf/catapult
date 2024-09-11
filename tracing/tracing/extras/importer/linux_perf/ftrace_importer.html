@@ -41,6 +41,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/linux_perf/workqueue_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/net_parser.html">
 <link rel="import" href="/tracing/extras/importer/linux_perf/qdisc_parser.html">
+<link rel="import" href="/tracing/extras/importer/linux_perf/v4l2_parser.html">
 <link rel="import" href="/tracing/importer/importer.html">
 <link rel="import" href="/tracing/importer/simple_line_reader.html">
 <link rel="import" href="/tracing/model/clock_sync_manager.html">
@@ -735,6 +736,41 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         this.pseudoThreadCounter--;
       }
       return thread;
+    },
+
+    /**
+     * @return {TimelineThread} A pseudo thread corresponding to the
+     * threadName.  Pseudo threads are for events that we want to break
+     * out to a separate timeline but would not otherwise happen.
+     * These threads are assigned to pid and given a
+     * unique (incrementing) TID.
+     */
+    getOrCreatePseudoThread(kernelThreadName, pid) {
+      const key = kernelThreadName+pid;
+      if (!this.kernelThreadStates_[key]) {
+        const tid = this.pseudoThreadCounter;
+        const thread = this.model_.getOrCreateProcess(pid).getOrCreateThread(
+            tid);
+        thread.name = kernelThreadName;
+
+        if ( !thread.parent.name ) {
+          const process = thread.parent;
+          process.sortIndex = Number.NEGATIVE_INFINITY;
+          process.important = true; // auto expend
+        }
+
+        this.kernelThreadStates_[key] = {
+          pid,
+          thread,
+          openSlice: undefined,
+          openSliceTS: undefined,
+          irqName: undefined,
+          irqNum: undefined
+        };
+        this.threadsByLinuxPid[tid] = thread;
+        this.pseudoThreadCounter--;
+      }
+      return this.kernelThreadStates_[key];
     },
 
     /**
@@ -2967,7 +3003,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (!event) {
         // Check if the event matches events traced by the Android framework
         const tag = eventBase.details.substring(0, 2);
-        if (tag === 'B|' || tag === 'E' || tag === 'E|' || tag === 'X|' ||
+        if (tag === 'B|' || tag === 'E' || tag === 'E|' || tag === 'A|' ||
             tag === 'C|' || tag === 'S|' || tag === 'F|' || tag === 'I|') {
           eventBase.subEventName = 'android';
         } else if (tag === 'gr' ) {
