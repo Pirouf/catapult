@@ -41,9 +41,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.model_ = importer.model_;
     this.ppids_ = {};
   }
-
   const TestExports = {};
 
+  const unknownThreadName = '<...>';
   const funcEnterRE = new RegExp('func=(.+)');
   TestExports.funcEnterRE = funcEnterRE;
   const funcArgsEnterRE = new RegExp('func=(.+) args=(.+)');
@@ -83,12 +83,13 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         thread = this.model_.getOrCreateProcess(tgid)
           .getOrCreateThread(pid);
       } else if (!thread) {
-        thread = this.model_.getOrCreatePseudoThread(eventBase.threadName);
+        thread = this.importer.getOrCreatePseudoThread(eventBase.threadName);
       }
 
       thread.name = eventBase.threadName;
 
       const slices = thread.kernelSliceGroup;
+      if (slices === undefined) return false;
       if (!slices.isTimestampValidForBeginOrEnd(ts)) {
         this.model_.importWarning({
           type: 'parse_error',
@@ -111,12 +112,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         thread = this.model_.getOrCreateProcess(tgid)
           .getOrCreateThread(pid);
       } else if (!thread) {
-        thread = this.model_.getOrCreatePseudoThread(eventBase.threadName);
+        thread = this.importer.getOrCreatePseudoThread(eventBase.threadName);
       }
 
-      thread.name = eventBase.threadName;
+      if (eventBase.threadName !== unknownThreadName)
+	  thread.name = eventBase.threadName;
 
       const slices = thread.kernelSliceGroup;
+      if (slices === undefined) return false;
       if (!slices.isTimestampValidForBeginOrEnd(ts)) {
         this.model_.importWarning({
           type: 'parse_error',
