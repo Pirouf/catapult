@@ -8,6 +8,8 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/linux_perf/parser.html">
 <link rel="import" href="/tracing/model/counter_series.html">
 <link rel="import" href="/tracing/model/instant_event.html">
+<link rel="import" href="/tracing/model/alert.html">
+<link rel="import" href="/tracing/model/event_info.html">
 
 <script>
 'use strict';
@@ -37,6 +39,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     this.model_ = importer.model_;
     this.ppids_ = {};
   }
+
+  const unknownThreadName = '<...>';
 
   function parseArgs(argsString) {
     const args = {};
@@ -106,15 +110,35 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const eventData = eventBase.details.split('|');
       switch (eventData[0]) {
         case 'B': {
-          const ppid = parseInt(eventData[1]);
+          let ptid = pid;
+	  let name = eventBase.threadName;
+          let ppid = parseInt(eventData[1]);
+          if( isNaN(ppid) ) {
+	      //
+              const parts = eventData[1].split(';');
+
+              if (!parts[0]) break;
+	      name = parts[0];
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  pthread = this.importer.getOrCreatePseudoThread(name, parseInt(parts[1]));
+		  ppid = parseInt(parts[1]);
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(name);
+		  ppid = pthread.pid;
+	      }
+	      ptid = pthread.thread.tid;
+	  }
           const title = eventData[2];
           const args = parseArgs(eventData[3]);
           let category = eventData[4];
           if (category === undefined) category = 'userspace';
 
-          const thread = this.model_.getOrCreateProcess(ppid)
-              .getOrCreateThread(pid);
-          thread.name = eventBase.threadName;
+	  const thread = this.model_.getOrCreateProcess(ppid)
+		  .getOrCreateThread(ptid);
+
+	  if (name !== unknownThreadName) thread.name = name;
           if (!thread.sliceGroup.isTimestampValidForBeginOrEnd(ts)) {
             this.model_.importWarning({
               type: 'parse_error',
@@ -123,22 +147,46 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             return false;
           }
 
-          this.ppids_[pid] = ppid;
+          this.ppids_[ptid] = ppid;
           thread.sliceGroup.beginSlice(category, title, ts, args);
 
           break;
         }
 
         case 'E': {
-          const ppid = this.ppids_[pid];
+          let ptid = pid;
+	  let name = eventBase.threadName;
+          let ppid = parseInt(eventData[1]);
+          if( isNaN(ppid) ) {
+	      //
+              const parts = eventData[1].split(';');
+
+              if (!parts[0]) break;
+	      name = parts[0];
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  pthread = this.importer.getOrCreatePseudoThread(name, parseInt(parts[1]));
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(name);
+	      }
+	      ppid = pthread.pid;
+	      ptid = pthread.thread.tid;
+	  }
+
+          ppid = this.ppids_[ptid];
           if (ppid === undefined) {
             // Silently ignore unmatched E events.
             break;
           }
 
           const thread = this.model_.getOrCreateProcess(ppid)
-              .getOrCreateThread(pid);
+              .getOrCreateThread(ptid);
           if (!thread.sliceGroup.openSliceCount) {
+            // Silently ignore unmatched E events.
+            break;
+          }
+          if (!thread.sliceGroup.isTimestampValidForBeginOrEnd(ts)) {
             // Silently ignore unmatched E events.
             break;
           }
@@ -191,14 +239,16 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           const args = parseArgs(eventData[4]);
           if(isNaN(cookie)) {
 		cookie = 0;
-		args['call'] = eventData[3];
+		args['event'] = eventData[3];
 	  }
           let category = eventData[5];
           if (category === undefined) category = 'userspace';
 
           const thread = this.model_.getOrCreateProcess(ppid)
               .getOrCreateThread(pid);
-          thread.name = eventBase.threadName;
+
+	  if (eventBase.threadName !== unknownThreadName)
+	      thread.name = eventBase.threadName;
 
           this.ppids_[pid] = ppid;
           this.openAsyncSlice(thread, category, name, cookie, ts, args);
@@ -216,14 +266,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           const args = parseArgs(eventData[4]);
           if(isNaN(cookie)) {
 		cookie = 0;
-		args['call'] = eventData[3];
 	  }
           let category = eventData[5];
           if (category === undefined) category = 'userspace';
 
           const thread = this.model_.getOrCreateProcess(ppid)
               .getOrCreateThread(pid);
-          thread.name = eventBase.threadName;
+
+	  if (eventBase.threadName !== unknownThreadName)
+	      thread.name = eventBase.threadName;
 
           this.ppids_[pid] = ppid;
           this.closeAsyncSlice(thread, category, name, cookie, ts, args);
@@ -247,7 +298,44 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           break;
         }
 
-        default:
+
+        case 'A': {
+          // Note: An Alert slice.
+          let ppid = parseInt(eventData[1]);
+          if( isNaN(ppid) ) {
+	      //
+              const parts = eventData[1].split(';');
+
+              if (!parts[0]) break;
+	      name = parts[0];
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  ppid = parseInt(parts[1]);
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(name);
+		  ppid = pthread.pid;
+	      }
+	  }
+          const alertTitle = eventData[2];
+          const args = parseArgs(eventData[3]);
+          let category = eventData[4];
+          if (category === undefined) category = 'userspace';
+
+          const process = this.model_.getOrCreateProcess(ppid);
+
+	  const alert =  new tr.model.Alert(
+              new tr.model.EventInfo(
+		  'Issues on '+ ppid + ' process ' + alertTitle,
+		  ''),
+              ts,
+              [],
+              args);
+	  this.model.alerts.push(alert);
+          break;
+        }
+
+         default:
           return false;
       }
 
