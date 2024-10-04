@@ -81,7 +81,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   // Example: cobalt_synch_sleepon: synch=ffffbc44c014e128 thread=ffffbc44c014c040(sampling-852)
   const xnSchedSyncSleeponRE =
       /synch=([0-9a-f]+) thread=([0-9a-f]+)\((.+)\)/;
-  TestExports.xnSchedSyncSleeponRE = xnSchedSyncSleeponRE;
+      TestExports.xnSchedSyncSleeponRE = xnSchedSyncSleeponRE;
+      
+  const xnSchedSyncOnlySleeponRE =
+      /synch=([0-9a-f]+)/;
+  TestExports.xnSchedSyncOnlySleeponRE = xnSchedSyncOnlySleeponRE;
 
   // Matches the cobalt_synch_wakeup: record
   // success=? is optional not all kernels report it, so don't include
@@ -270,7 +274,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     xnSchedShadowGohardEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowGohardRE.exec(eventBase.details);
-      if (!event) xnSchedShadowGohardEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      if (!event) return this.xnSchedShadowGohardEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const state = event[1];
       const info = event[2];
@@ -281,7 +285,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     xnSchedShadowHardenedEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowHardenedRE.exec(eventBase.details);
-      if (!event) xnSchedShadowHardenedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      if (!event) return this.xnSchedShadowHardenedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const state = event[1];
       const info = event[2];
@@ -294,7 +298,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     xnSchedShadowGorelaxEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowGorelaxRE.exec(eventBase.details);
-      if (!event) xnSchedShadowGorelaxEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      if (!event) return this.xnSchedShadowGorelaxEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const xnreason = event[2];
 
@@ -304,7 +308,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     
     xnSchedShadowRelaxedEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const event = xnSchedShadowRelaxedRE.exec(eventBase.details);
-      if (!event) xnSchedShadowRelaxedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      if (!event) return this.xnSchedShadowRelaxedEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const state = event[1];
       const info = event[2];
@@ -327,14 +331,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     xnSchedSyncSleeponEvent(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedSyncSleeponRE.exec(eventBase.details);
-      if (!event) xnSchedSyncSleeponEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
+      let event = xnSchedSyncSleeponRE.exec(eventBase.details);
+      if (!event) event = xnSchedSyncOnlySleeponRE.exec(eventBase.details);
+      if (!event) return this.xnSchedSyncSleeponEventLegacy(eventName, cpuNumber, pid, ts, eventBase);
 
       const fromPid = pid;
       const xnsync = event[1];
-      const comm = event[3];
 
-      this.importer.markXnSyncSleep(ts, xnid, xnsync, cpuNumber, fromPid);
+      this.importer.markXnSyncSleep(ts, xnsync, cpuNumber, fromPid);
       return true;
     },
 
@@ -490,7 +494,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     xnSchedSyncWakeupEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedSyncWakeupRE.exec(eventBase.details);
+      const event = xnSchedSyncWakeupRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const fromPid = pid;
@@ -502,7 +506,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     xnSchedSyncSleeponEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedSyncSleeponRE.exec(eventBase.details);
+      const event = xnSchedSyncSleeponRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const fromPid = pid;
@@ -516,12 +520,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         xnthread.thread.sync = xnsync;
         //xnthread.lastarg = { stateWhenDescheduled: this.prevRootSchedState, xnStateWhenDescheduled : this.prevHeadSchedState};
       }
-      this.importer.markXnSyncSleep(ts, xnid, xnsync, cpuNumber, fromPid);
+      this.importer.markXnSyncSleep(ts, xnsync, cpuNumber, fromPid);
       return true;
     },
 
     xnSchedLostageWakeupEventLegacy(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = xnSchedLostageWakeupRE.exec(eventBase.details);
+      const event = xnSchedLostageWakeupRELegacy.exec(eventBase.details);
       if (!event) return false;
 
       const fromPid = pid;

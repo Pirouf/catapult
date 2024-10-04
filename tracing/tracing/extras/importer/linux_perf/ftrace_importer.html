@@ -851,9 +851,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Records the fact that a xnid goes into sleep on signal wake. This data will
      * eventually get used to derive each thread's timeSlices array.
      */
-    markXnSyncSleep(ts, xnid, xnsyncid, cpuid, fromPid) {
+    markXnSyncSleep(ts, xnsyncid, cpuid, fromPid) {
       // construction of the xenomai sync wakeup object.
-      this.sleepons_.push({ts, xnid: xnid, xnsyncid: xnsyncid, cpuid: cpuid, fromTid: fromPid});
+      this.sleepons_.push({ts, xnsyncid: xnsyncid, cpuid: cpuid, fromTid: fromPid});
     },
 
     /**
