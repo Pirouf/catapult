@@ -116,17 +116,34 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const TestExports = {};
 
+  // From https://elixir.bootlin.com/linux/v6.6.54/source/kernel/trace/trace_output.c#L467
+  //
+  // #                                          _-----=> irqs-off/BH-disabled
+  // #                                         / _----=> need-resched
+  // #                                        | / _---=> hardirq/softirq
+  // #                                        || / _--=> preempt-depth
+  // #                                        ||| / _-=> migrate-disable
+  // #                                        |||| /     delay
+  // #           TASK-PID       TGID    CPU#  |||||  TIMESTAMP  FUNCTION
+  // #              | |           |       |   |||||     |         |
+  // irqs-off/BH-disabled [dXDb*.]
+  // need-resched [Nnp.]
+  // hardirq/softirq [HhsZz~.]
+  //
   // Matches the trace record in 3.2 and later with the print-tgid option:
   // withTGID
   //          <idle>-0     [000] (-----) dN..  2484.980174: sched_wakeup: comm=ktimersoftd/0 pid=8 prio=98 target_cpu=000
   // withTGIDpatch
   //          <idle>-0     (-----) [001] dN..   905.243560: sched_wakeup: comm=ksoftirqd/1 pid=20 prio=120 target_cpu=001
+  //         head-60980   (  60980) [012] dl.3. 12079.274821: sched_wakeup: comm=ksoftirqd/12 pid=147 prio=120 target_cpu=012
+  //         head-60898   (  60898) [009] dBh1. 12066.086807: softirq_raise: vec=7 [action=SCHED]
+  //
   // A TGID (Thread Group ID) is basically what the Linux kernel calls what
   // userland refers to as a process ID (as opposed to a Linux pid, which is
   // what userland calls a thread ID).
   const lineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGID = function(line) {
     const groups = lineREWithTGID.exec(line);
@@ -149,7 +166,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const lineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithTGIDpatch = function(line) {
     const groups = lineREWithTGIDpatch.exec(line);
@@ -174,7 +191,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const lineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][HhsZz~.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithIRQInfo = function(line) {
     const groups = lineREWithIRQInfo.exec(line);
@@ -191,10 +208,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   TestExports.lineParserWithIRQInfo = lineParserWithIRQInfo;
 
   // Matches the default trace record in 5.15 and later (includes migrate-disable):
+  // WithMigrateDisable
   //          <idle>-0       [004] dNh..   816.476867: sched_wakeup: comm=kworker/u16:3 pid=55 prio=120 target_cpu=004
+  // WithTGIDMigrateDisable
+  //         head-60980   (  60980) [012] dl.3. 12079.274821: sched_wakeup: comm=ksoftirqd/12 pid=147 prio=120 target_cpu=012
+  //         head-60898   (  60898) [009] dBh1. 12066.086807: softirq_raise: vec=7 [action=SCHED]
+  //
     const lineREWithMigrateDisable = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][HhsZz~.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const lineParserWithMigrateDisable = function(line) {
     const groups = lineREWithMigrateDisable.exec(line);
@@ -214,7 +236,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0       (-------) [004] dNh..   816.476867: sched_wakeup: comm=kworker/u16:3 pid=55 prio=120 target_cpu=004
     const lineREWithTGIDMigrateDisable = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][HhsZz~.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][HhsZz~.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
     const lineParserWithTGIDMigrateDisable = function(line) {
     const groups = lineREWithTGIDMigrateDisable.exec(line);
@@ -240,12 +262,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [000] (-----) dN..3..  2484.980174: sched_wakeup: comm=ktimersoftd/0 pid=8 prio=98 target_cpu=000
   // withTGIDpatch
   //          <idle>-0     (-----) [001] dN..3..   905.243560: sched_wakeup: comm=ksoftirqd/1 pid=20 prio=120 target_cpu=001
+  //         head-60980   (  60980) [012] dl..3.. 12079.274821: sched_wakeup: comm=ksoftirqd/12 pid=147 prio=120 target_cpu=012
+  //         head-60898   (  60898) [009] dB.h1.. 12066.086807: softirq_raise: vec=7 [action=SCHED]
+  //
   // A TGID (Thread Group ID) is basically what the Linux kernel calls what
   // userland refers to as a process ID (as opposed to a Linux pid, which is
   // what userland calls a thread ID).
   const PREEMPT_RTlineREWithTGID = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]\\s\\(\\s*(\\d+|-+)\\)' +
-      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGID = function(line) {
     const groups = PREEMPT_RTlineREWithTGID.exec(line);
@@ -268,7 +293,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   const PREEMPT_RTlineREWithTGIDpatch = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\(\\s*(\\d+|-+)\\)\\s\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithTGIDpatch = function(line) {
     const groups = PREEMPT_RTlineREWithTGIDpatch.exec(line);
@@ -293,7 +318,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
   //          <idle>-0     [001] d...  1.23: sched_switch
   const PREEMPT_RTlineREWithIRQInfo = new RegExp(
       '^\\s*(.+)-(\\d+)\\s+\\[(\\d+)\\]' +
-      '\\s+[dXDb*.][Nnp.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
+      '\\s+[dXDb*.][NnpBl.][NnLp.][HhsZz~.][0-9a-f.][0-9a-f.][0-9a-f.]' +
       '\\s+(\\d+\\.\\d+):\\s+(\\S+):\\s(.*)$');
   const PREEMPT_RTlineParserWithIRQInfo = function(line) {
     const groups = PREEMPT_RTlineREWithIRQInfo.exec(line);
