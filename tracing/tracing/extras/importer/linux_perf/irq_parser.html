@@ -84,7 +84,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const name = event[2];
 
       const thread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
+          'irqs cpu/' + cpuNumber, "irqs", 0 - cpuNumber );
       thread.lastEntryTs = ts;
       thread.irqName = name;
 
@@ -111,7 +111,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const irq = parseInt(event[1]);
       const ret = event[2];
       const thread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
+          'irqs cpu/' + cpuNumber, "irqs", 0 - cpuNumber );
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;
@@ -165,7 +165,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const action = event[2];
 
       const kthread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
+          'irqs cpu/' + cpuNumber, "irqs", 0 - cpuNumber );
 
       kthread.lastSoftirqEntryTs = ts;
 
@@ -180,7 +180,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const action = event[2];
 
       const kthread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0 - cpuNumber );
+          'irqs cpu/' + cpuNumber, "irqs", 0 - cpuNumber );
 
       const args = {
         'vec' : vec,
@@ -213,7 +213,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      */
     ipiEntryEvent(eventName, cpuNumber, pid, ts, eventBase) {
       const thread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0);
+          'irqs cpu/' + cpuNumber, "irqs", 0);
       thread.lastEntryTs = ts;
 
       return true;
@@ -225,7 +225,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
       const ipiName = event[1];
       const thread = this.importer.getOrCreateKernelThread(
-          'irqs cpu/' + cpuNumber, "Interrupts", 0);
+          'irqs cpu/' + cpuNumber, "irqs", 0);
 
       if (thread.lastEntryTs !== undefined) {
         const duration = ts - thread.lastEntryTs;

@@ -68,7 +68,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (!event) return event;
 
     return {
-      tgid: 'Interrupts',
+      tgid: 'irqs',
       label: event[2],
       param: event[1]
     };
@@ -83,12 +83,42 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (!event) return event;
 
     return {
-      tgid: 'Interrupts',
+      tgid: 'irqs/soft',
       label: event[1],
       param: event[2]
     };
   };
   TestExports.schedSwitchKsoftirq = schedSwitchKsoftirq;
+
+  // Matches the irq_work/threads sched record
+  const schedSwitch_KirqworkRE =
+      /(irq_work)\/(\d+)/;
+  const schedSwitchKirqwork = function(comm) {
+    const event = schedSwitch_KirqworkRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'irqs/work',
+      label: event[1],
+      param: event[2]
+    };
+  };
+  TestExports.schedSwitchKirqwork = schedSwitchKirqwork;
+
+  // Matches the Timer/threads sched record
+  const schedSwitch_ktimersRE =
+      /(ktimers)\/(\d+)/;
+  const schedSwitchKtimer = function(comm) {
+    const event = schedSwitch_ktimersRE.exec(comm);
+    if (!event) return event;
+
+    return {
+      tgid: 'ktimers/work',
+      label: event[1],
+      param: event[2]
+    };
+  };
+  TestExports.schedSwitchKtimer = schedSwitchKtimer;
 
   // Matches the kworker/u8:2 sched record
   const schedSwitch_kworkerRE =
@@ -113,7 +143,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (!event) return undefined;
 
     return {
-      tgid: 'Others',
+      tgid: 'migrations',
       label: event[1],
       param: event[2]
     };
@@ -146,7 +176,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (!event) return event;
 
     return {
-      tgid: 'Others',
+      tgid: 'others',
       label: event[1],
       param: event[2]
     };
@@ -160,7 +190,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (!event) return event;
 
     return {
-      tgid: 'Others',
+      tgid: 'others',
       label: event[0],
       param: undefined
     };
@@ -207,6 +237,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     if (schedSwitch_IrqRE.test(comm)) return schedSwitchIrq;
     if (schedSwitch_KsoftirqRE.test(comm)) return schedSwitchKsoftirq;
     if (schedSwitch_kworkerRE.test(comm)) return schedSwitchKworker;
+    if (schedSwitch_ktimersRE.test(comm)) return schedSwitchKtimer;
+    if (schedSwitch_KirqworkRE.test(comm)) return schedSwitchKirqwork;
     if (schedSwitch_kthreaddRE.test(comm)) return schedSwitchKthreadd;
     if (schedSwitch_migrateRE.test(comm)) return schedSwitchMigrate;
     if (schedSwitch_rcuRE.test(comm)) return schedSwitchRcu;
@@ -271,7 +303,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
             //
             // Kernel threaded-irq (Process 0)
             //
-            if ( ( threadSched.tgid === 'Interrupts') &&
+            if ( ( threadSched.tgid === 'irqs') &&
                  ( threadSched.label !== 'ksoftirqd') ) {
 
               if (!storedKthread.irqName || !storedKthread.irqNum ) {
@@ -366,7 +398,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           //
           // Kernel threaded-irq (Process 0)
           //
-          if ( ( threadSched.tgid === 'Interrupts') &&
+          if ( ( threadSched.tgid === 'irqs') &&
                ( threadSched.label !== 'ksoftirqd') ) {
 
             if (!storedKthread.irqName || !storedKthread.irqNum ) {
