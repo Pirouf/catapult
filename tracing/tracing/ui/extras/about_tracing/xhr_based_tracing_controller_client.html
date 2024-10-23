@@ -106,6 +106,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return beginXhr('GET', '/json/get_buffer_percent_full');
     },
 
+    beginTriggersSnapshotTaken(triggers) {
+      return beginXhr('GET', '/json/get_triggers_snapshot_taken');
+    },
+
     endRecording() {
       return beginXhr('GET', '/json/end_recording_compressed').then(
           function(data) {

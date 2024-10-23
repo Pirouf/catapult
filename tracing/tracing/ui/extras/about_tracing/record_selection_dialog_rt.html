@@ -37,6 +37,7 @@ found in the LICENSE file.
     flex-direction: row;
   }
 
+  .trigger-presets,
   .category-presets {
     padding: 4px;
   }
@@ -57,6 +58,19 @@ found in the LICENSE file.
   .category-description-hidden {
     max-height: 0;
     opacity: 0;
+  }
+
+  .hist-trigger-description {
+    color: #aaa;
+    font-size: small;
+    max-height: 1em;
+    max-width: 1080px;
+    opacity: 1;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: left;
+    transition: max-height 1s ease, max-width 1s ease, opacity 1s ease;
+    will-change: opacity;
   }
 
   .default-enabled-event-categories,
@@ -99,6 +113,15 @@ found in the LICENSE file.
     flex-direction: row;
   }
 
+  .trigger-select {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    border-bottom: 2px solid #ddd;
+    border-top: 2px solid #ddd;
+  }
+
   .tracing-select {
     flex: 1 0 auto;
     display: flex;
@@ -108,12 +131,48 @@ found in the LICENSE file.
     border-top: 2px solid #ddd;
   }
 
-  .options {
+  .synthetic-options,
+  {
+    display: flex;
+    padding: 4px;
+    flex: 1 0 auto;
+    flex-direction: row;
+    font-size: 80%;
+    opacity: 1;
+    will-change: opacity;  
+  }
+
+  .trigger-options,
+  .options
+  {
     flex: 1 0 auto;
     flex-direction: column;    
     padding: 4px;
   }
 
+  .filters {
+    display: flex;
+    padding: 4px;
+    font-size: 80%;
+    opacity: 1;
+    will-change: opacity;  
+    flex-direction: row;
+  }
+
+  .trigger,
+  .trigger-id,
+  .action,
+  .filter {
+    display: flex;
+    padding: 4px;
+    font-size: 80%;
+    opacity: 1;
+    will-change: opacity;  
+    flex-wrap: wrap;
+    flex-direction: column;
+  }
+
+  .synthetic-option,
   .option {
     display: flex;
     padding: 4px;
@@ -122,20 +181,21 @@ found in the LICENSE file.
     will-change: opacity;  
   }
 
+  .trigger-hidden,
+  .trigger-id-hidden,
+  .action-hidden,
+  .filter-hidden,
   .option-hidden,
   .option-undefined
   {
     opacity: 0;
     display: none;
   }
- 
   
   .default-enabled-function-categories,
   .default-enabled-perf-categories {
     border-left: 2px solid #ddd;
   }
-
-
   
   .warning-default-enabled-function-categories,
   .warning-default-enabled-tracing-categories,
@@ -148,6 +208,25 @@ found in the LICENSE file.
     height: 2.0ex;
     border-radius: 2.0ex;
     border: 1px solid #BD2E2E;
+  }
+
+  .viewing-enabled-hist-trigger-categories, 
+  .default-enabled-hist-trigger-category {
+    display: inline-block;
+    font-weight: bold;
+    text-align: center;
+    color: #BD2E2E;
+    width: 2.0ex;
+    height: 2.0ex;
+    border-radius: 2.0ex;
+    border: 1px solid #BD2E2E;
+  }
+
+  .warning-default-enabled-tracing-categories-hidden,
+  .viewing-enabled-hist-trigger-categories-hidden, 
+  .default-enabled-hist-trigger-category-hidden {
+    opacity: 0;
+    display: none;
   }
 
   .categories {
@@ -173,9 +252,26 @@ found in the LICENSE file.
     display: flex;
   }
 
+  .triggered-option-group {
+    flex: 0 0 auto;
+    flex-direction: column;
+    display: flex;
+  }
+
+  .triggered-option-group-hidden {
+    opacity: 0;
+    display: none;
+  }
+
   .record-selection-dialog .labeled-option {
     border-top: 5px solid white;
     border-bottom: 5px solid white;
+  }
+
+  .record-selection-dialog .labeled-trigger {
+    border-top: 5px solid white;
+    border-bottom: 5px solid white;
+    font-size: 80%;
   }
 
   .record-selection-dialog .edit-categories {
@@ -211,13 +307,13 @@ found in the LICENSE file.
     <div class="category-description"></div>
     <div class="categories-column-view">
       <div class="tracing-modes">
-        <div class="tracing-select">Modes:</div>
+        <div class="tracing-select">Modes:</div>	  
         <div class="options">Options:</div>
       </div>
       <div class="categories-selection">
         <div class="default-enabled-event-categories">
           <div>Trace&nbsp;Events&nbsp;Categories
-              <a class="warning-default-enabled-tracing-categories">!</a>
+              <a class="warning-default-enabled-tracing-categories-hidden">!</a>
           </div>
           <div class="group-selectors">
             Select
@@ -261,7 +357,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   const RecordSelectionDialogRt = tr.ui.b.define('div');
   const categories_ = [];
   const functions_ = [];
-  const triggers_ = [];
+  const triggers_ = {};
 
   function createEditCategorySpan(optionGroupEl, targetEl) {
     const spanEl = tr.ui.b.createSpan({className: 'edit-categories'});
@@ -288,10 +384,11 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       const categoryRELength = CategoryFilter.length;
       if (categoryRELength > 0 && tr.ui.e.about_tracing.categories_ ) {
         const allCategoriesLength = tr.ui.e.about_tracing.categories_.length;
-        for (let i = 0; i < allCategoriesLength; ++i) {
-          for (let j = 0; j < categoryRELength; ++j) {
+        for (let j = 0; j < categoryRELength; ++j) {
+          let categoryCount = 0;
+          for (let i = 0; i < allCategoriesLength; ++i) {
             if (CategoryFilter[j].exec(tr.ui.e.about_tracing.categories_[i]))
-              categorySet.push(tr.ui.e.about_tracing.categories_[i]);
+		      categorySet.push(tr.ui.e.about_tracing.categories_[i]);
           }
         }
       }
@@ -317,6 +414,80 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return true;
   }
 
+  function FindTriggersPreset(CategoryFilter, ActionFilter) {
+      // Dedup the Triggers from regExp 
+      // returned when we query the Triggers list.
+      const triggerSet = [];
+      const actionSet = [];
+      const triggerRELength = CategoryFilter.length;
+      const actionRELength = ActionFilter.length;
+      for (let j = 0; j < triggerRELength; ++j) {
+          for (const trigger in tr.ui.e.about_tracing.triggers_) {
+              if (CategoryFilter[j].exec(trigger)) {
+		  triggerSet.push(trigger);
+		  let triggerByShortName = trigger.split('/');
+		  if ( triggerByShortName.length > 0 ) {
+		      triggerByShortName = triggerByShortName[triggerByShortName.length - 1]
+		  } else {
+		      triggerByShortName = trigger;
+		  }
+		  for (const action in tr.ui.e.about_tracing.triggers_[trigger]['options']) {
+		      for (let i = 0; i < actionRELength; ++i) {
+			  if (ActionFilter[i].exec(action)) {
+			      actionSet.push(triggerByShortName+'!'+action);
+			      break;
+			  }
+		      }
+		      if (actionSet.length>0) break;
+		  }
+		  if (actionSet.length===0) actionSet.push(triggerByShortName+'!nop');
+	      }
+	  }
+      }
+      return [triggerSet.join(','), actionSet.join(';')];
+  }
+
+  function FindTriggersByAction(ActionList) {
+      // Dedup the Triggers from List 
+      // returned when we query the Triggers objects.
+      const triggerSet = {};
+      const triggerRELength = ActionList.length;
+      for (let i = 0; i < triggerRELength; ++i) {
+	  const action = ActionList[i].split('!');
+	  if (!action.length || action.length > 2 ) continue;
+	  const triggerRE = new RegExp(action[0]);
+	  const defaultAction = action[1];
+          for (const trigger in tr.ui.e.about_tracing.triggers_) {
+              if (triggerRE.exec(trigger)) {
+		  triggerSet[trigger]=tr.ui.e.about_tracing.triggers_[trigger];
+		  triggerSet[trigger]['select'] = triggerSet[trigger]['select'].replace(/!nop/g, '!'+ defaultAction);
+	      } else {
+		  triggerSet[trigger]=tr.ui.e.about_tracing.triggers_[trigger];
+		  triggerSet[trigger]['select'] = triggerSet[trigger]['select'].replace(/-Slt/g, '-hideSlt');
+	      }
+	  }
+      }
+      return triggerSet;
+  }
+
+  function isTriggersPresetAvailable(CategoryFilter) {
+      // Dedup the Triggers from regExp 
+      // returned when we query the Triggers list.
+      const triggerCount = 0;
+      const triggerRELength = CategoryFilter.length;
+      if (triggerRELength > 0 && tr.ui.e.about_tracing.triggers_ ) {
+        const allTriggersLength = tr.ui.e.about_tracing.triggers_.length;
+        for (let j = 0; j < triggerRELength; ++j) {
+          let triggerCount = 0;
+          for (const trigger in tr.ui.e.about_tracing.triggers_) {
+            if (CategoryFilter[j].exec(trigger))
+		triggerCount++;
+          }
+          if (triggerCount === 0) return false;
+        }
+      }
+      return true;
+  }
   function createOptionGroup(targetEl, targetElProperty,
       settingsKey, defaultValue, initialMode, initialOption, initialFunction, 
       items) {
@@ -415,6 +586,147 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     return optionGroupEl;
   }
 
+  function createOptionGroupTriggers(targetEl, targetElProperty,
+	    settingsKey, defaultValue, defaultAction, count, threshold, unit, items) {
+    function onChange() {
+	let value_ = '';
+	let action_ = '';
+	let unit_ = 'us';
+	let threshold_ = 10;
+	let count_ = 100;
+	
+	if (this.value) {
+            value_ = this.value;
+	}
+	if (this.attributes.action.nodeValue != "undefined" ) {
+            action_ = this.attributes.action.nodeValue;
+	}
+	if (this.attributes.unit.nodeValue != "undefined" ) {
+            unit_ = this.attributes.unit.nodeValue;
+	}
+	if (this.attributes.count.nodeValue != "undefined" ) {
+            count_ = this.attributes.count.nodeValue;
+	}
+	if (this.attributes.threshold.nodeValue != "undefined" ) {
+            threshold_ = this.attributes.threshold.nodeValue;
+	}
+	const preset = { 'value': value_.split(','),
+			 'action': action_.split(';'),
+			 'count': count_,
+			 'threshold': threshold_,
+			 'unit': unit_,
+                       }
+
+	tr.b.Settings.set(settingsKey, value_);
+	targetEl[targetElProperty] = preset;
+
+	const actionList = action_.split(';');
+	targetEl.updateTriggerAction_(actionList);
+        targetEl.triggerOverlayEl_.visible = true;
+    }
+
+    const optionGroupEl = tr.ui.b.createSpan({className: 'triggered-option-group-hidden'});
+    const initialValue = FindTriggersPreset(defaultValue, defaultAction);
+    const preset = { 'value': initialValue[0].split(','),
+                     'action': initialValue[1].split(';'),
+                     'count': count,
+                     'threshold': threshold,
+                     'unit': unit,
+                    }
+
+    targetEl.triggerOverlayEl_ = tr.ui.b.Overlay();
+    targetEl.triggerOverlayEl_.parentEl_ = targetEl;
+    targetEl.triggerOverlayEl_.parentTargetElProperty_ = targetElProperty;
+    targetEl.triggerOverlayEl_.title = 'Triggers conditions...';
+
+    targetEl.triggerOverlayEl_.userCanClose = true;
+    function onCloseHandler(evt) {
+	targetEl.updateCategoriesTrigger_();
+    }
+    targetEl.triggerOverlayEl_.addEventListener('closeclick', onCloseHandler.bind(targetEl));
+
+    targetEl.setTriggerDialogOverlay_(FindTriggersByAction(initialValue[1].split(';')));
+
+    for (let i = 0; i < items.length; ++i) {
+      const item = items[i];
+      const id = 'trigger-preset-' + item.label.replace(/ /g, '-').replace(/\(|\)/g, '');
+      const presetValue = FindTriggersPreset(item.value, item.action);
+
+      const radioEl = document.createElement('input');
+      radioEl.type = 'radio';
+      Polymer.dom(radioEl).setAttribute('id', id);
+      Polymer.dom(radioEl).setAttribute('name', 'trigger-presets-group');
+      Polymer.dom(radioEl).setAttribute('value', presetValue[0]);
+      Polymer.dom(radioEl).setAttribute('action', presetValue[1]);
+      Polymer.dom(radioEl).setAttribute('count', parseInt(count));
+      Polymer.dom(radioEl).setAttribute('threshold', parseInt(threshold));
+      Polymer.dom(radioEl).setAttribute('unit', unit);
+
+      if (!isTriggersPresetAvailable(item.value)) {
+        // condition to gray-out Radiobutton without a full-match
+        radioEl.disabled = true;
+        radioEl.checked = false;
+      } else {
+
+        radioEl.addEventListener('change', onChange.bind(radioEl, targetEl,
+          targetElProperty,
+          settingsKey));
+
+        if (valuesEqual(initialValue, presetValue)) {
+          radioEl.checked = true;
+        }
+      }
+
+      const labelEl = document.createElement('label');
+      Polymer.dom(labelEl).textContent = item.label;
+      Polymer.dom(labelEl).setAttribute('for', id);
+
+      const spanEl = tr.ui.b.createSpan({className: 'labeled-trigger'});
+      Polymer.dom(spanEl).appendChild(radioEl);
+      Polymer.dom(spanEl).appendChild(labelEl);
+
+      spanEl.__defineSetter__('checked', function(opt_bool) {
+        const changed = radioEl.checked !== (!!opt_bool);
+        if (!changed) return;
+
+        radioEl.checked = !!opt_bool;
+        onChange();
+      });
+      spanEl.__defineGetter__('checked', function() {
+        return radioEl.checked;
+      });
+      Polymer.dom(optionGroupEl).appendChild(spanEl);
+    }
+
+    if (targetEl.traceTriggerCountTxt_ &&
+	targetEl.traceTriggerThresholdTxt_ ) {
+
+	const divSyntheticEl = tr.ui.b.createDiv({className : 'synthetic-options'});
+
+	const labelSyntheticCntOptEl = document.createElement('label');
+	Polymer.dom(labelSyntheticCntOptEl).textContent = 'trigger-count[0-100]=';
+	
+	const divSyntheticCntOptEl = tr.ui.b.createDiv({className : 'synthetic-option'});
+        Polymer.dom(divSyntheticCntOptEl).appendChild(labelSyntheticCntOptEl);
+        Polymer.dom(divSyntheticCntOptEl).appendChild(targetEl.traceTriggerCountTxt_);
+
+	const labelSyntheticThrOptEl = document.createElement('label');
+	Polymer.dom(labelSyntheticThrOptEl).textContent = 'trigger-threshold(val[' + unit + '])>';
+	
+	const divSyntheticThrOptEl = tr.ui.b.createDiv({className : 'synthetic-option'});
+        Polymer.dom(divSyntheticThrOptEl).appendChild(labelSyntheticThrOptEl);
+        Polymer.dom(divSyntheticThrOptEl).appendChild(targetEl.traceTriggerThresholdTxt_);
+
+	Polymer.dom(divSyntheticEl).appendChild(divSyntheticCntOptEl);
+	Polymer.dom(divSyntheticEl).appendChild(divSyntheticThrOptEl);
+	
+	Polymer.dom(optionGroupEl).appendChild(divSyntheticEl);
+    }
+
+    targetEl[targetElProperty] = preset;
+    return optionGroupEl;
+  }
+
   function createOptionGroupPerf(targetEl, targetElProperty,
       settingsKey, defaultValue,
       items) {
@@ -500,7 +812,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   const i2cRE = new RegExp('i2c\/.*');
   const v4l2RE = new RegExp('v4l2\/.*');
   const bpfRE = new RegExp('bpf_trace\/.*');
-
+    
   const DEFAULT_PRESETS = [
     {title: 'Linux Preempt/RT Kernel',
       categoryFilter: [
@@ -665,15 +977,44 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       functionFilter: []
     }
   ];
+
+  const durationRE = new RegExp('onmax\\(\\$duration\\)\\..*');
+  const intervalRE = new RegExp('onmax\\(\\$interval\\)\\..*');
+  const wakeupRE = new RegExp('onmax\\(\\$wakeup\\)\\..*');
+  const schedSwitchRE = new RegExp('sched\/sched_switch');
+  const schedWakeupRE = new RegExp('sched\/sched_wakeup');
+  const SNAPSHOT_PRESETS = [
+    {title: 'Thread worst-case Execution Time (WCET)',
+     categoryFilter: [
+         schedSwitchRE,
+     ],
+     actionFilter: [
+         durationRE,
+     ],
+     count: 50,
+     threshold: 10,
+     unit: 'us',
+    },
+    {title: 'Thread worst-case Scheduling Intervals (WCSI)',
+     categoryFilter: [
+         schedWakeupRE,
+     ],
+     actionFilter: [
+         intervalRE,
+     ],
+     count: 50,
+     threshold: 100,
+     unit: 'us',
+    },
+  ];
   const RECORDING_MODES = [
     {'label': 'Record until full',
-      'value': 'record-until-full'},
+     'value': 'record-until-full'},
     {'label': 'Record continuously',
-      'value': 'record-continuously'}]
-    //TODO(fpirou): add synthetic-events based 
-    // hist-trigger conditions:
-    //{'label': 'Record triggered snapshots',
-    //  'value': 'record-snapshots'},
+     'value': 'record-continuously'},
+    {'label': 'Record snapshots triggered on ...',
+     'value': 'record-snapshots'}]
+
   const DEFAULT_CONTINUOUS_TRACING = true;
   const CALLSTACK_DEPTH = [
     {'label': '128',
@@ -692,10 +1033,6 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
      'value': 'g2'},
     {'label': '0',
      'value': ''}]
-    //TODO(fpirou): add synthetic-events based 
-    // hist-trigger conditions:
-    //{'label': 'Record triggered snapshots',
-    //  'value': 'record-snapshots'},
   const DEFAULT_CALLSTACK_DEPTH = 'g4';
   const TestExports = {};
 
@@ -714,7 +1051,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   TestExports.optionTxtRE = optionTxtRE;
 
   const optionSltRE = new RegExp(
-    'option-Slt-(.+)\\?(.*)!(.+)');
+    'option-(Slt|hideSlt)-(.+)\\?(.*)!(.+)');
   TestExports.optionSltRE = optionSltRE;
   
   RecordSelectionDialogRt.prototype = {
@@ -761,16 +1098,42 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           this, 'tracingRecordMode',
           'recordSelectionDialogRt.tracingRecordMode',
           DEFAULT_PRESETS[0].modeFilter, RECORDING_MODES);
-
       this.tracingSelectContainerEl_ = Polymer.dom(this).querySelector(
           '.tracing-select');
+
       Polymer.dom(this.tracingSelectContainerEl_).appendChild(
           this.tracingRecordModeSltr_);
+
+      this.traceTriggerCountTxt_ = tr.ui.b.createTextInput(
+          this, 'traceTriggerCount',
+          'recordSelectionDialogRt.traceTriggerCount',
+          '50');
+
+      this.traceTriggerThresholdTxt_ = tr.ui.b.createTextInput(
+          this, 'traceTriggerThreshold',
+          'recordSelectionDialogRt.traceTriggerThreshold',
+          '10');
+
+      Polymer.dom(this.tracingSelectContainerEl_).appendChild(createOptionGroupTriggers(
+          this, 'currentlyChosenTriggerPreset',
+          'about_tracing.record_selection_dialog_trigger-preset',
+          SNAPSHOT_PRESETS[0].categoryFilter,
+          SNAPSHOT_PRESETS[0].actionFilter,
+          SNAPSHOT_PRESETS[0].count,
+          SNAPSHOT_PRESETS[0].threshold,
+          SNAPSHOT_PRESETS[0].unit,
+          SNAPSHOT_PRESETS.map(function(p) {
+            return { label: p.title, value: p.categoryFilter, action: p.actionFilter, count: p.count, threshold: p.threshold, unit: p.unit};
+          })));
 
       this.tracingOptionsContainerEl_ = Polymer.dom(this).querySelector(
           '.tracing-modes .options');
       
       this.enabledCategoriesContainerEl_ =
+          Polymer.dom(this).querySelector(
+              '.default-enabled-event-categories .categories');
+      
+      this.triggerCategoriesContainerEl_ =
           Polymer.dom(this).querySelector(
               '.default-enabled-event-categories .categories');
 
@@ -811,17 +1174,21 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       this.createDefaultFunctionsWarningDialog_(
           Polymer.dom(this).querySelector(
               '.warning-default-enabled-function-categories'));
-
+/*
       this.createDefaultTracingWarningDialog_(
           Polymer.dom(this).querySelector(
               '.warning-default-enabled-tracing-categories'));
+*/
+      this.createDefaultPerfWarningDialog_(
+          Polymer.dom(this).querySelector(
+              '.warning-default-enabled-perf-categories'));
 
       this.createDefaultPerfWarningDialog_(
           Polymer.dom(this).querySelector(
               '.warning-default-enabled-perf-categories'));
 
       this.editCategoriesOpened_ = false;
-
+      
       // TODO(chrishenry): When used with tr.ui.b.Overlay (such as in
       // chrome://tracing, this does not yet look quite right due to
       // the 10px overlay content padding (but it's good enough).
@@ -838,6 +1205,27 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       this.perfRecordFilter_ = value;
     },
 
+    get traceTriggerCount() {
+	return this.traceTriggerCountTxt_.value;
+    },
+    set traceTriggerCount(value) {
+	if (parseInt(value) > 0 && parseInt(value) <= 100)
+	    this.traceTriggerCount_ = parseInt(value);
+	else 
+	    this.traceTriggerCount_ = 100;
+    },
+
+
+    get traceTriggerThreshold() {
+	return this.traceTriggerThresholdTxt_.value;
+    },
+    set traceTriggerThreshold(value) {
+	if (parseInt(value) !== undefined )
+	    this.traceTriggerThreshold_ = parseInt(value);
+	else 
+	    this.traceTriggerThreshold_ = 10;
+    },
+
     get perfRecordGraph() {
       return this.perfRecordGraphSltr_.selectedValue;
     },
@@ -850,7 +1238,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return this.tracingRecordModeSltr_.selectedValue;
     },
     set tracingRecordMode(value) {
-      this.tracingRecordMode_ = value;
+	this.tracingRecordMode_ = value;
+	this.updateManualSelectionView_();
     },
 
     get bpf_tracer() {
@@ -922,18 +1311,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     },
 
     set triggers(c) {
-      if (!(c instanceof Array)) {
-        throw new Error('kernel event triggers must be an array');
+      if (!(c instanceof Object)) {
+        throw new Error('kernel event triggers must be Hashable');
       }
       tr.ui.e.about_tracing.triggers_ = c;
-
-      for (let i = 0; i < tr.ui.e.about_tracing.triggers_.length; i++) {
-        const split = tr.ui.e.about_tracing.triggers_[i].split(',');
-        tr.ui.e.about_tracing.triggers_[i] = split.shift();
-        if (split.length > 0) {
-          tr.ui.e.about_tracing.triggers_ = tr.ui.e.about_tracing.triggers_.concat(split);
-        }
-      }
     },
 
     set categories(c) {
@@ -963,8 +1344,19 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return this.current_tracer_ === 'function_graph';
     },
 
+    useSnapshots() {
+      if (this.tracingRecordModeSltr_ != undefined)
+	  return this.tracingRecordModeSltr_.selectedValue === 'record-snapshots';
+      else
+	  return false
+    },
+
     usingPreset_() {
       return this.currentlyChosenPreset_.length > 0;
+    },
+
+    usingTriggerPreset_() {
+      return this.currentlyChosenTriggerPreset_.length > 0;
     },
 
     usingFunctionPreset_() {
@@ -991,6 +1383,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return this.currentlyChosenOptionPreset_;
     },
 
+    get currentlyChosenTriggerPreset() {
+      return this.currentlyChosenTriggerPreset_;
+    },
+
     set currentlyChosenPreset(preset) {
       if (!(preset.value instanceof Array)) {
         throw new Error('RecordSelectionDialog.currentlyChosenPreset:' +
@@ -1010,6 +1406,14 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       }
       this.updateManualSelectionView_();
       this.updatePresetDescription_();
+    },
+
+    set currentlyChosenTriggerPreset(preset) {
+      if (!(preset.value instanceof Array)) {
+        throw new Error('RecordSelectionDialog.currentlyChosenTriggerPreset:' +
+            ' preset must be an array.');
+      }
+      this.currentlyChosenTriggerPreset_ = preset.action;
     },
 
     updateManualSelectionView_() {
@@ -1035,6 +1439,27 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           classList.add('categories-column-view-hidden');
         }
       }
+
+      const tracingSelectContainerEl = Polymer.dom(this).querySelector(
+          '.tracing-select');
+      if (!tracingSelectContainerEl) return;
+
+      const tracingSelectContainerSpanEl = Polymer.dom(tracingSelectContainerEl).querySelector(
+          'span');
+      if (!tracingSelectContainerSpanEl) return;
+	
+      if ( this.useSnapshots() ) {
+	  Polymer.dom(tracingSelectContainerSpanEl).classList.add(
+	      'triggered-option-group');
+	  Polymer.dom(tracingSelectContainerSpanEl).classList.remove(
+	      'triggered-option-group-hidden');
+      } else {
+	  Polymer.dom(tracingSelectContainerSpanEl).classList.add(
+	      'triggered-option-group-hidden');
+	  Polymer.dom(tracingSelectContainerSpanEl).classList.remove(
+	      'triggered-option-group');
+      }
+	
     },
 
     updateCategoryColumnView_(shouldReadFromSettings) {
@@ -1083,6 +1508,34 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         Polymer.dom(presetOptionsGroup).classList.remove('categories-expanded');
         Polymer.dom(presetOptionsGroup).classList.add('categories-hidden');
       }
+    },
+
+    updateCategoriesTrigger_() {
+	const inputs =
+	      Polymer.dom(this.enabledCategoriesContainerEl_).querySelectorAll(
+		  'input');
+	const hists =
+	      Polymer.dom(this.triggerOverlayEl_).querySelectorAll(
+		  '.hist-trigger-description');
+	for (let i = 0; i < inputs.length; ++i) {
+	    const inputEl = inputs[i];
+	    for (let j = 0; j < hists.length; ++j) {
+		const histEl = hists[j];
+		if (histEl.getAttribute('for')  === inputEl.value + '/trigger') {
+		    
+		    Polymer.dom(inputEl).setAttribute('trigger', histEl.innerText);
+		    Polymer.dom(inputEl).setAttribute('triggerOrder', histEl.getAttribute('Order'));
+		    
+		    const markerEl = Polymer.dom(inputEl.parentNode).querySelector('a')
+		    if (histEl.innerText === '') {
+			markerEl.className = 'default-enabled-hist-trigger-category-hidden';
+		    } else {
+			markerEl.className = 'default-enabled-hist-trigger-category';
+			break;
+		    }
+		}
+	    }
+	}
     },
 
     updatePresetDescription_() {
@@ -1143,6 +1596,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       let includedFunctionFilters = [];
       let optionsCategories = [];
       let perfCategories = [];
+      let triggeredCategories = this.useSnapshots() ? this.enabledByDefaultTriggerCategories_() : [];
       if (this.usingPreset_()) {
         const allCategories = this.allCategories_();
         for (const category in allCategories) {
@@ -1164,27 +1618,25 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
             includedFunctionFilters.push(functFilter);
           }
         }
-        optionsCategories = this.enabledByDefaultOptions_();
         return {
           includedEvents: includedCategories,
           excludedEvents: excludedCategories,
+          triggeredEvents: triggeredCategories,
           includedFunctions: includedFunctionFilters,
-          options: optionsCategories,
+          options: this.enabledByDefaultOptions_(),
           perf: this.enabledByDefaultPerfCategory_()
         };
       }
 
       includedCategories = this.enabledByDefaultCategories_();
-      excludedCategories = [];
-      includedFunctionCategories = this.enabledByDefaultFunctionCategories_();
-      perfCategories = this.enabledByDefaultPerfCategory_();
-      optionsCategories = this.enabledByDefaultOptions_();
+      includedFunctionFilters = this.enabledByDefaultFunctionCategories_();
       return {
         includedEvents: includedCategories,
         excludedEvents: excludedCategories,
-        includedFunctions: includedFunctionCategories,
-        options: optionsCategories,
-        perf: perfCategories
+        triggeredEvents: triggeredCategories,
+        includedFunctions: includedFunctionFilters,
+        options: this.enabledByDefaultOptions_(),
+        perf: this.enabledByDefaultPerfCategory_()
       };
     },
 
@@ -1206,6 +1658,34 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         if (input.checked === isChecked) {
           categories.push(input.value);
         }
+      }
+      return categories;
+    },
+    
+    collectTriggers_(inputs) {
+
+      const inputsLength = inputs.length;
+      const categories = [];
+      const count = this.traceTriggerCountTxt_ ? this.traceTriggerCountTxt_.value : '100';
+      const threshold = this.traceTriggerThresholdTxt_ ? ' if val>' + this.traceTriggerThresholdTxt_.value : '';
+      const categoriesOrdered = {
+	  '0' : ['synthetic/catapult_snapshot/trigger#snapshot:' + count,
+		 'synthetic/catapult_alert/trigger#hist:keys=val,pid:alert=val:sort=val:onmax($alert).snapshot()' + threshold,
+		 'synthetic/catapult_start/trigger#traceon:' + count,
+		 'synthetic/catapult_stop/trigger#traceoff if (cnt > ' + count + ')'] };
+      for (let i = 0; i < inputsLength; ++i) {
+        const input = inputs[i];
+        if (input.checked === true &&
+	    input.getAttribute('trigger') !== '') {
+            const order = parseInt(input.getAttribute('triggerOrder'));
+	    if (categoriesOrdered[order] === undefined)
+		categoriesOrdered[order] = [];
+            categoriesOrdered[order].push(input.value + '/trigger#' + input.getAttribute('trigger'));
+        }
+      }
+      for (const [key, values] in categoriesOrdered) {
+	  for (let i = 0; i < categoriesOrdered[key].length; ++i)
+	      categories.push(categoriesOrdered[key][i]);
       }
       return categories;
     },
@@ -1236,6 +1716,16 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           Polymer.dom(this.enabledCategoriesContainerEl_).querySelectorAll(
               'input');
       return this.collectInputs_(inputs, true);
+    },
+    enabledByDefaultTriggerCategories_() {
+      const inputs =
+          Polymer.dom(this.enabledCategoriesContainerEl_).querySelectorAll(
+              'input');
+      if (this.usingTriggerPreset_()){
+	  this.updateTriggerAction_(this.currentlyChosenTriggerPreset_);
+	  this.updateCategoriesTrigger_();
+      }
+      return this.collectTriggers_(inputs);
     },
     enabledByDefaultPerfCategory_() {
       let perfEvt = this.perfRecord;
@@ -1283,6 +1773,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       for (let i = 0; i < inputsLength; i++) {
         const category = inputs[i];
         const inputEl = document.createElement('input');
+        const triggerEl = document.createElement('a');
         let categoryShortName = 'None';
         let categoryLabel = 'None';
 
@@ -1295,10 +1786,14 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           inputEl.disabled = true;
         } else {
           inputEl.checked = tr.b.Settings.get(
-            category, checkedDefault, this.settings_key_);
+          category, checkedDefault, this.settings_key_);
           inputEl.onclick = this.updateSetting_.bind(this);
-        }
+          Polymer.dom(inputEl).setAttribute('trigger', '');
 
+	  Polymer.dom(triggerEl).setAttribute('class', 'default-enabled-hist-trigger-category-hidden');
+	  Polymer.dom(triggerEl).textContent = 't';
+          Polymer.dom(triggerEl).setAttribute('for', category + '/trigger');
+        }
         const labelEl = document.createElement('label');
         Polymer.dom(labelEl).textContent = categoryLabel;
         Polymer.dom(labelEl).setAttribute('for', categoryShortName);
@@ -1306,6 +1801,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         const divEl = document.createElement('div');
         Polymer.dom(divEl).appendChild(inputEl);
         Polymer.dom(divEl).appendChild(labelEl);
+	Polymer.dom(divEl).appendChild(triggerEl);
         Polymer.dom(parent).appendChild(divEl);
       }
     },
@@ -1385,16 +1881,17 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         } else if ( optionSltRE.test(inputs[i]) ) {
           // 
           const option = optionSltRE.exec(inputs[i]);
-          const optionsByName = option[1];
-          let optionsByShortName = option[1].split('/');
+          let selectClass = (option[1] === 'hideSlt') ? 'option-hidden'  : 'option';
+          const optionsByName = option[2];
+          let optionsByShortName = option[2].split('/');
           if ( optionsByShortName.length > 0 ) {
             optionsByShortName = optionsByShortName[optionsByShortName.length - 1]
           } else {
             optionsByShortName = optionsByName;
           }
-          const optionsBySelect = option[2].split(':');
-          const optionClass = parseInt(option[3]) == -1 ? 'option-undefined'  : 'option';
-          const optionsByDefault = option[3];
+          const optionsBySelect = option[3].split(':');
+          const optionClass = parseInt(option[4]) == -1 ? 'option-undefined'  : 'option';
+          const optionsByDefault = option[4];
           const items = [];
           const targetElProperty = optionsByShortName.replace('-','_');
           const settingsKey = parentTargetElProperty + '.' + targetElProperty;
@@ -1456,6 +1953,21 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       return FunctionSet;
     },
 
+    allEnabledTriggers_() {
+      // Dedup the Triggers. We may have things in settings that are also
+      // returned when we query the category list.
+      const triggerShortlist = {};
+      const checkedDefault = true;
+      const allCategories = 
+	    tr.ui.e.about_tracing.categories_;
+      for (const [key, values] of Object.entries(tr.ui.e.about_tracing.triggers_)) {
+	  if ( allCategories.indexOf(key) >= 0) {
+	      triggerShortlist[key] = values;
+	  }
+      }
+      return triggerShortlist;
+    },
+
     updateForm_() {
       function ignoreCaseCompare(a, b) {
         return a.toLowerCase().localeCompare(b.toLowerCase());
@@ -1465,7 +1977,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       Polymer.dom(this.enabledCategoriesContainerEl_).innerHTML = '';
       Polymer.dom(this.perfCategoriesContainerEl_).innerHTML = '';
       Polymer.dom(this.functionCategoriesContainerEl_).innerHTML = '';
-      Polymer.dom(this.tracingOptionsContainerEl_).innerHTML = '';
+      Polymer.dom(this.tracingOptionsContainerEl_).innerHTML = ''
 
       this.recordButtonEl_.focus();
 
@@ -1493,7 +2005,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
 
       if (tr.ui.e.about_tracing.categories_.length === 0) {
         this.infoBarGroup_.addMessage(
-            'No categories found; chech that Linux .config contains CONFIG_TRACING=y, CONFIG_EVENT_TRACING=y, CONFIG_HIST_TRIGGERS=y and CONFIG_DYNAMIC_FTRACE=y');
+            'No categories found; chech that Linux .config contains CONFIG_TRACING=y, CONFIG_EVENT_TRACING=y, CONFIG_TRACER_SNAPSHOT=y, CONFIG_HIST_TRIGGERS=y and CONFIG_DYNAMIC_FTRACE=y');
       }
 
       this.buildInputs_(categories, true, this.enabledCategoriesContainerEl_);
@@ -1501,7 +2013,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       if (optionsCategories.length > 0) {
         this.tracingOptionsContainerEl_.hidden = false;
         this.buildOptions_(this,'recordSelectionDialogRt',
-        this.tracingOptionsContainerEl_,optionsCategories);
+			   this.tracingOptionsContainerEl_,optionsCategories);
       }
 
       if (functionCategories.length > 0) {
@@ -1521,11 +2033,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         const perfCategoriesContainerParentEl_ =
           Polymer.dom(this).querySelector(
               '.default-enabled-perf-categories');
-        Polymer.dom(perfCategoriesContainerParentEl_).removeChild(this.perfCategoriesContainerEl_);            
+        Polymer.dom(perfCategoriesContainerParentEl_).removeChild(this.perfCategoriesContainerEl_);
         Polymer.dom(perfCategoriesContainerParentEl_).appendChild(perfCategoriesNewContainerEl_);
         this.perfCategoriesContainerEl_.hidden = false;
       }
-
     },
 
     updateSetting_(e) {
@@ -1625,13 +2136,333 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
 
         this.setWarningDialogOverlayText_([
           'Using Linux \'perf events\' may requires to install',
-          'linux-perf or linux-tools-common package.',
+          'linux-perf or linux-tools package.',
           'Try \'perf list\' to check if available.'
         ]);
 
         evt.preventDefault();
       }
       warningLink.onclick = onClickHandler.bind(this);
+    },
+
+    updateTriggerAction_(o) {
+
+	if (this.triggerOverlayEl_ === undefined) return;
+
+	if (!(o instanceof Array)) {
+            throw new Error('categories must be an array');
+	}
+
+	this.triggerPresets_ = [];
+	const values_ = [];
+	const select_group = [];
+	for (let i = 0; i < o.length; i++) {
+            const split = o[i].split('!');
+            this.triggerPresets_ = this.triggerPresets_.concat(split[0]);
+            values_.push(split[1]);
+	}
+
+	let triggerSelect = Polymer.dom(this.triggerOverlayEl_).querySelectorAll('.trigger');
+	triggerSelect = triggerSelect.concat(Polymer.dom(this.triggerOverlayEl_).querySelectorAll('.trigger-hidden'));
+	let triggerLabels = Polymer.dom(this.triggerOverlayEl_).querySelectorAll('.trigger-id');
+	triggerLabels = triggerLabels.concat(Polymer.dom(this.triggerOverlayEl_).querySelectorAll('.trigger-id-hidden'));
+	for (let j = 0; j < triggerSelect.length; ++j) {
+	    
+	    const triggerEl = triggerSelect[j];
+	    const triggerLabelEl = triggerLabels[j];
+	    
+	    if (triggerEl.type !== 'select-one') continue;
+	    
+	    if (this.usingTriggerPreset_() && 
+		this.triggerPresets_.length > 0 ) {
+
+		const presetIndex = this.triggerPresets_.indexOf(triggerEl.name);
+		if ( presetIndex >= 0 ) {
+		    triggerEl.selectedValue = values_[presetIndex];
+		    Polymer.dom(triggerLabelEl).classList.remove('trigger-id-hidden');
+		    Polymer.dom(triggerEl).classList.remove('trigger-hidden');
+		    Polymer.dom(triggerLabelEl).classList.add('trigger-id');
+		    Polymer.dom(triggerEl).classList.add('trigger');
+		} else {
+		    triggerEl.selectedValue = 'nop';
+		    Polymer.dom(triggerLabelEl).classList.remove('trigger-id');
+		    Polymer.dom(triggerEl).classList.remove('trigger');
+		    Polymer.dom(triggerLabelEl).classList.add('trigger-id-hidden');
+		    Polymer.dom(triggerEl).classList.add('trigger-hidden');
+		}
+		
+	    }
+	    select_group.push(triggerEl.selectedValue);
+	}
+
+	if (select_group.length) {
+
+	    const options = Polymer.dom(this.triggerOverlayEl_).querySelectorAll(
+		      '.trigger-options');
+	    for (let j = 0; j < options.length; ++j) {
+
+		const optionEl = options[j];
+		let actions = Polymer.dom(optionEl).querySelectorAll('.action');
+		actions = actions.concat(Polymer.dom(optionEl).querySelectorAll('.action-hidden'));
+
+		for (let k = 0; k < actions.length; ++k) {
+
+		    const actionEl = actions[k];
+		    const description = Polymer.dom(actionEl).querySelector(
+			'.hist-trigger-description');
+		    if ( select_group.indexOf(actionEl.getAttribute('action')) >= 0 &&
+			 actionEl.getAttribute('action') !== 'nop') {
+
+			description.innerText =
+			    'hist:keys=' + actionEl.getAttribute('keys') +
+			    ':' + actionEl.getAttribute('vars') +
+			    ':size=' + actionEl.getAttribute('size') + 
+			    ':' + actionEl.getAttribute('action');
+
+			// Explore action filters
+			const filters = Polymer.dom(actionEl).querySelectorAll('.filter');
+			let filterStr_ = '';
+			let fieldCnt = 0;
+			for (let l = 0; l < filters.length; ++l) {
+			    const filterEl = filters[l];
+			    if (filterEl.value !== '') {
+				let field_ = '';
+				if (filterEl.getAttribute('type') === 'txt')
+				    field_ = filterEl.name + '"' + filterEl.value + '"';
+				else if (filterEl.getAttribute('type') === 'na')
+				    field_ = filterEl.name;
+				else
+				    field_ = filterEl.name + filterEl.value;
+	
+				if (!fieldCnt)
+				    filterStr_ += field_;
+				else
+				    filterStr_ += ') && (' + field_ ;
+				fieldCnt++;
+			    }
+			}
+
+			if ( filterStr_ !== '')
+			    description.innerText += ' if (' + filterStr_ + ')';
+			description.innerText += '\n'
+
+			// unveil action user options
+			actionEl.className = 'action';
+
+			if (actionEl.getAttribute('depends') === '') continue;
+
+			// Explore action inter-dependencies
+			const actionsDepends = actionEl.getAttribute('depends').split(':');
+			for (let m = 0; m < actionsDepends.length; ++m) {
+
+			    const depend = actionsDepends[m].split('#');
+
+			    // search depending actions across all event triggers
+			    let actionDependEl = undefined;
+			    for (let i = 0; i < options.length && actionDependEl === undefined; ++j) {
+
+				const optionDependEl = options[i];
+				let allActions = Polymer.dom(optionDependEl).querySelectorAll('.action');
+				allActions = allActions.concat(Polymer.dom(optionDependEl).querySelectorAll('.action-hidden'));
+
+				for (let n = 0; n < allActions.length; ++n) {
+				    if ((allActions[n].getAttribute('for') ===  depend[0] + '/trigger') &&
+					allActions[n].getAttribute('action') ===  depend[1]) {
+					actionDependEl = allActions[n];
+					break;
+				    }
+				}
+			    }
+
+			    if (actionDependEl !== undefined) {
+				const dependDescription = Polymer.dom(actionDependEl).querySelector(
+				    '.hist-trigger-description');
+				dependDescription.innerText += 'hist:keys=' + actionDependEl.getAttribute('keys') +
+				    ':' + actionDependEl.getAttribute('vars') +
+				    ':size=' + actionDependEl.getAttribute('size') + 
+				    ':' + actionDependEl.getAttribute('action')
+
+				const dependFilters = Polymer.dom(actionDependEl).querySelectorAll('.filter');
+				let dependFilterStr_ = '';
+				let dependFieldCnt = 0;
+				for (let o = 0; o < dependFilters.length; ++o) {
+				    const dependfilterEl = dependFilters[o];
+				    const filterEl = filters[o];
+				    if (filterEl.value !== '') {
+					let dependsField_ = '';
+					if (dependfilterEl.getAttribute('type') === 'txt')
+					    dependsField_ = dependfilterEl.name + '"' + filterEl.value + '"';
+					else if (dependfilterEl.getAttribute('type') === 'na')
+					    dependsField_ = dependfilterEl.name;
+					else
+					    dependsField_ = dependfilterEl.name + filterEl.value;
+
+					if (!dependFieldCnt)
+					    dependFilterStr_ += dependsField_;
+					else
+					    dependFilterStr_ += ') && (' + dependsField_ ;
+					dependFieldCnt++;
+				    }
+				}
+
+				if ( dependFilterStr_ !== '')
+				    dependDescription.innerText += ' if (' + dependFilterStr_ + ')';
+				dependDescription.innerText += '\n';
+				//actionDependEl.className = 'action';
+			    }
+			}
+		    } else {
+			description.innerText = ''
+			actionEl.className = 'action-hidden';
+		    }
+		}
+	    }
+	}
+    },
+      
+    setTriggerDialogOverlay_(selects) {
+
+	if (!(selects instanceof Object)) {
+            throw new Error('Trigger selection must be an dict');
+	}
+
+	if (!this.triggerOverlayEl_) return;
+	const contentDiv = tr.ui.b.createDiv({className: 'triggers'});
+	for (sel in selects) {
+
+	  if (!('select' in selects[sel])) continue;
+
+	  const select = selects[sel];
+	  const option = optionSltRE.exec(select['select']);
+	  
+	  const selectClass = (option[1] === 'hideSlt') ? 'trigger-hidden'  : 'trigger';
+          const labelClass = (option[1] === 'hideSlt') ? 'trigger-id-hidden'  : 'trigger-id';
+	  const optionsByName = option[2];
+	  let optionsByShortName = option[2].split('/');
+	  if ( optionsByShortName.length > 0 ) {
+              optionsByShortName = optionsByShortName[optionsByShortName.length - 1]
+	  } else {
+              optionsByShortName = optionsByName;
+	  }
+	  const optionsBySelect = option[3].split(':');
+	  const optionsByDefault = option[4];
+
+	  const items = [];
+	  const targetElPropertyTrigger = optionsByShortName.replace('-','_') + '.trigger';
+	  const settingsKey = this.triggerOverlayEl_.parentTargetElProperty_ + '.' + targetElPropertyTrigger;
+	  const optionId = optionsByName + '/trigger';
+
+	  if (optionsBySelect.length) {
+
+	      const triggerClass = 'trigger-options'; //'trigger-options-hidden';
+	      const ContainerTriggersEl = tr.ui.b.createDiv({className : triggerClass});
+	      Polymer.dom(ContainerTriggersEl).textContent = '';
+	      Polymer.dom(ContainerTriggersEl).setAttribute('for', optionId);
+
+              for (let j = 0; j < optionsBySelect.length; j++) {
+		  const handler = optionsBySelect[j];
+		  if (handler === optionsByDefault ) {
+		      defaultValueIndex =j; 
+		  }
+
+		  items.push( { 'label': handler,
+				'value': handler} );
+
+		  if (!('options' in select)) continue;
+
+		  const options = select['options'];
+
+		  if (handler in options) {
+
+		      if ('if' in options[handler]) {
+
+			  const actionClass =  'action-hidden' ; //'action';
+			  const actionId = optionId + '/' + handler;
+			  const actionEl = tr.ui.b.createDiv({className : actionClass});
+			  const actionDepends = options[handler]['depends'].join(':');
+			  Polymer.dom(actionEl).setAttribute('for', optionId);
+			  Polymer.dom(actionEl).setAttribute('keys', options[handler]['keys']);
+			  Polymer.dom(actionEl).setAttribute('vars', options[handler]['vars']);
+			  Polymer.dom(actionEl).setAttribute('size', options[handler]['size']);
+			  Polymer.dom(actionEl).setAttribute('depends', actionDepends);
+			  Polymer.dom(actionEl).setAttribute('action', handler);
+
+			  const description = tr.ui.b.createDiv({className : 'hist-trigger-description'});
+			  description.innerText = ''
+			  Polymer.dom(description).setAttribute('order', options[handler]['depends'].length);
+			  Polymer.dom(description).setAttribute('for', optionId);
+			  Polymer.dom(actionEl).appendChild(description);
+
+			  const targetElPropertyAction =  '.action.' + handler.replace('-','_');
+			  const filterObjets = Object.entries(options[handler]['if']);
+			  const divFilterGroupEl = tr.ui.b.createDiv({className : 'filters'});
+			  for (let k = 0; k < filterObjets.length; k++) {
+			      
+			      const filter = filterObjets[k];
+			      const filterClass = 'filter'; //'filter-hidden';
+			      const filterByName = filter[0].replace(/[<>=]+/,'');
+			      const filterValueType = filter[1];
+			      const filterId = actionId + '/' + filterByName;
+			      const targetElProperty =  '.filter.' + filterByName.replace('-','_');
+			      const settingsKey = targetElPropertyTrigger + targetElPropertyAction + targetElProperty;
+
+			      const labelFilterEl = document.createElement('label');
+			      Polymer.dom(labelFilterEl).textContent = '('+ filter[0] + '...)';
+			      Polymer.dom(labelFilterEl).setAttribute('for', filterId );
+
+			      const optionTxtEl = tr.ui.b.createTextInput(
+				  this.triggerOverlayEl_, targetElProperty,
+				  settingsKey,
+				  '');
+			      optionTxtEl.id = filterId;
+			      optionTxtEl.name = filter[0];
+			      optionTxtEl.className = filterClass;
+
+			      function onActionEdit() {
+				  this.updateTriggerAction_([optionsByShortName + '!' + handler]);
+			      }
+			      optionTxtEl.onmouseleave = onActionEdit.bind(this, optionsByShortName, handler);
+			      Polymer.dom(optionTxtEl).setAttribute('type', filterValueType );
+
+			      const divFilterEl = tr.ui.b.createDiv();
+			      Polymer.dom(divFilterEl).textContent = (k === 0) ? 'IF ' : ' && ';
+			      Polymer.dom(divFilterEl).setAttribute('for', actionId );
+			      Polymer.dom(divFilterEl).appendChild(labelFilterEl);
+			      Polymer.dom(divFilterEl).appendChild(optionTxtEl);
+			      Polymer.dom(divFilterGroupEl).appendChild(divFilterEl);
+			  }
+			  Polymer.dom(actionEl).appendChild(divFilterGroupEl);
+			  Polymer.dom(ContainerTriggersEl).appendChild(actionEl);
+		      }
+		  }
+              }
+
+              const labelEl = document.createElement('label');
+              labelEl.className = labelClass;
+              Polymer.dom(labelEl).textContent = optionId;
+              Polymer.dom(labelEl).setAttribute('for', optionsByShortName);
+
+              const optionSltEl = tr.ui.b.createSelector(
+		  this.triggerOverlayEl_, targetElPropertyTrigger,
+		  settingsKey,
+		  optionsByDefault, items);
+              optionSltEl.id = optionId;
+              optionSltEl.name = optionsByShortName;
+              optionSltEl.className = selectClass;
+	      function onActionChange() {
+		  this.updateTriggerAction_([]);
+	      }
+	      optionSltEl.onchange = onActionChange.bind(this);
+
+	      const divSelEl = tr.ui.b.createDiv();
+              Polymer.dom(divSelEl).appendChild(labelEl);
+              Polymer.dom(divSelEl).appendChild(optionSltEl);
+              Polymer.dom(contentDiv).appendChild(divSelEl);
+              Polymer.dom(contentDiv).appendChild(ContainerTriggersEl);
+	  }
+	}
+	Polymer.dom(this.triggerOverlayEl_).textContent = '';
+	Polymer.dom(this.triggerOverlayEl_).appendChild(contentDiv);
     }
   };
 

@@ -92,20 +92,13 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       const recordingOptions = {
         include_categories: categories.includedEvents,
         exclude_categories: categories.excludedEvents,
+        trigger_categories: categories.triggeredEvents,
         filter_functions: categories.includedFunctions,
         perf_categories: categories.perf,
         record_mode: selectionDlg.tracingRecordMode,
         record_options: categories.options,
         stream_format: 'json',
       };
-      
-    //   if (categories.included.indexOf(
-    //       'disabled-by-default-memory-infra') !== -1) {
-    //     const memoryConfig = { triggers: [] };
-    //     memoryConfig.triggers.push(
-    //         {'mode': 'detailed', 'periodic_interval_ms': 10000});
-    //     recordingOptions.memory_dump_config = memoryConfig;
-    //   }
       
       const requestPromise = tracingControllerClient.beginRecording(
           recordingOptions);
@@ -115,6 +108,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
             stopButton.focus();
             if (recordingOptions.record_mode === 'record-until-full' )
               updateBufferPercentFull('0');
+            else if (recordingOptions.record_mode === 'record-snapshots' )
+              updateTriggersSnapshotTaken('0');
             else if (bufferPercentFullDiv)
               Polymer.dom(bufferPercentFullDiv).textContent = 'Rolling-buffer...';
           },
@@ -167,6 +162,24 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       }
 
       window.setTimeout(getBufferPercentFull, 500);
+    }
+
+    function getTriggersSnapshotTaken() {
+      if (!bufferPercentFullDiv) return;
+
+      tracingControllerClient.beginTriggersSnapshotTaken().then(
+          updateTriggersSnapshotTaken);
+    }
+
+    function updateTriggersSnapshotTaken(hitcount) {
+      if (!bufferPercentFullDiv) return;
+
+      const newText = 'Snapshots = ' + hitcount;
+      if (Polymer.dom(bufferPercentFullDiv).textContent !== newText) {
+        Polymer.dom(bufferPercentFullDiv).textContent = newText;
+      }
+
+      window.setTimeout(getTriggersSnapshotTaken, 1000);
     }
 
     // Thats it! We're done.

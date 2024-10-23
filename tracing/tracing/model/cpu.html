@@ -180,6 +180,12 @@ tr.exportTo('tr.model', function() {
         return;
       }
 
+      // Don't generate a if the last active thread was in prior trace snapshot 
+      if (tr.model.last_snapshot_ts &&
+	  tr.model.last_snapshot_ts <= endTimestamp &&
+	  tr.model.last_snapshot_ts > this.lastActiveTimestamp_ )
+         return;
+
       if (endTimestamp < this.lastActiveTimestamp_) {
         throw new Error('The end timestamp of a thread running on CPU ' +
                         this.cpuNumber + ' is before its start timestamp.');
