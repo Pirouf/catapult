@@ -157,7 +157,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           let ptid = pid;
 	  let name = eventBase.threadName;
           let ppid = parseInt(eventData[1]);
-          if( isNaN(ppid) ) {
+          if( isNaN(ppid) && eventData.length > 1) {
 	      //
               const parts = eventData[1].split(';');
 
