@@ -4,12 +4,115 @@
 #define BPF_DEFS_H
 
 #include <stdbool.h>
-#include <pthread.h>
 
-#include <linux/v4l2-controls.h>
-#include <linux/videodev2.h>
+//#include <pthread.h> removed to avoid <stub32.h> i686 deps 
+//#include <linux/spinlock_types_raw.h>
+
+#include <asm-generic/posix_types.h>
+typedef __kernel_size_t		size_t;
+
+typedef struct {
+	volatile unsigned int slock;
+} arch_spinlock_t;
+
+typedef struct raw_spinlock___local {
+	arch_spinlock_t raw_lock;
+} raw_spinlock_t;
+
+/* Non PREEMPT_RT kernels map spinlock to raw_spinlock */
+typedef struct spinlock___local {
+	union {
+		struct raw_spinlock___local rlock;
+	};
+} spinlock_t;
+
+//#include <linux/v4l2-controls.h>  removed to avoid <stub32.h> i686 deps
+
+/* Control classes */
+#define V4L2_CTRL_CLASS_USER		0x00980000	/* Old-style 'user' controls */
+#define V4L2_CTRL_CLASS_CODEC		0x00990000	/* Stateful codec controls */
+#define V4L2_CTRL_CLASS_CAMERA		0x009a0000	/* Camera class controls */
+#define V4L2_CTRL_CLASS_FM_TX		0x009b0000	/* FM Modulator controls */
+#define V4L2_CTRL_CLASS_FLASH		0x009c0000	/* Camera flash controls */
+#define V4L2_CTRL_CLASS_JPEG		0x009d0000	/* JPEG-compression controls */
+#define V4L2_CTRL_CLASS_IMAGE_SOURCE	0x009e0000	/* Image source controls */
+#define V4L2_CTRL_CLASS_IMAGE_PROC	0x009f0000	/* Image processing controls */
+#define V4L2_CTRL_CLASS_DV		0x00a00000	/* Digital Video controls */
+#define V4L2_CTRL_CLASS_FM_RX		0x00a10000	/* FM Receiver controls */
+#define V4L2_CTRL_CLASS_RF_TUNER	0x00a20000	/* RF tuner controls */
+#define V4L2_CTRL_CLASS_DETECT		0x00a30000	/* Detection controls */
+#define V4L2_CTRL_CLASS_CODEC_STATELESS 0x00a40000	/* Stateless codecs controls */
+#define V4L2_CTRL_CLASS_COLORIMETRY	0x00a50000	/* Colorimetry controls */
+
+/* User-class control IDs */
+#define V4L2_CID_BASE                   (V4L2_CTRL_CLASS_USER | 0x900)
+#define V4L2_CID_USER_BASE              V4L2_CID_BASE
+#define V4L2_CID_USER_CLASS             (V4L2_CTRL_CLASS_USER | 1)
+#define V4L2_CID_BRIGHTNESS             (V4L2_CID_BASE+0)
+#define V4L2_CID_CONTRAST               (V4L2_CID_BASE+1)
+#define V4L2_CID_SATURATION             (V4L2_CID_BASE+2)
+#define V4L2_CID_HUE                    (V4L2_CID_BASE+3)
+#define V4L2_CID_AUDIO_VOLUME           (V4L2_CID_BASE+5)
+#define V4L2_CID_AUDIO_BALANCE          (V4L2_CID_BASE+6)
+#define V4L2_CID_AUDIO_BASS             (V4L2_CID_BASE+7)
+#define V4L2_CID_AUDIO_TREBLE           (V4L2_CID_BASE+8)
+#define V4L2_CID_AUDIO_MUTE             (V4L2_CID_BASE+9)
+#define V4L2_CID_AUDIO_LOUDNESS         (V4L2_CID_BASE+10)
+#define V4L2_CID_BLACK_LEVEL            (V4L2_CID_BASE+11) /* Deprecated */
+#define V4L2_CID_AUTO_WHITE_BALANCE     (V4L2_CID_BASE+12)
+#define V4L2_CID_DO_WHITE_BALANCE       (V4L2_CID_BASE+13)
+#define V4L2_CID_RED_BALANCE            (V4L2_CID_BASE+14)
+#define V4L2_CID_BLUE_BALANCE           (V4L2_CID_BASE+15)
+#define V4L2_CID_GAMMA                  (V4L2_CID_BASE+16)
+#define V4L2_CID_WHITENESS              (V4L2_CID_GAMMA) /* Deprecated */
+#define V4L2_CID_EXPOSURE               (V4L2_CID_BASE+17)
+#define V4L2_CID_AUTOGAIN               (V4L2_CID_BASE+18)
+#define V4L2_CID_GAIN                   (V4L2_CID_BASE+19)
+#define V4L2_CID_HFLIP                  (V4L2_CID_BASE+20)
+#define V4L2_CID_VFLIP                  (V4L2_CID_BASE+21)
+
 
 #define V4L2_CID_IPU_BASE	(V4L2_CID_USER_BASE + 0x1080)
+
+//#include <linux/v4l2-mediabus.h>  removed to avoid <stub32.h> i686 deps
+
+/**
+ * struct v4l2_mbus_framefmt - frame format on the media bus
+ * @width:	image width
+ * @height:	image height
+ * @code:	data format code (from enum v4l2_mbus_pixelcode)
+ * @field:	used interlacing type (from enum v4l2_field), zero for metadata
+ *		mbus codes
+ * @colorspace:	colorspace of the data (from enum v4l2_colorspace), zero on
+ *		metadata mbus codes
+ * @ycbcr_enc:	YCbCr encoding of the data (from enum v4l2_ycbcr_encoding), zero
+ *		for metadata mbus codes
+ * @hsv_enc:	HSV encoding of the data (from enum v4l2_hsv_encoding), zero for
+ *		metadata mbus codes
+ * @quantization: quantization of the data (from enum v4l2_quantization), zero
+ *		for metadata mbus codes
+ * @xfer_func:  transfer function of the data (from enum v4l2_xfer_func), zero
+ *		for metadata mbus codes
+ * @flags:	flags (V4L2_MBUS_FRAMEFMT_*)
+ * @reserved:  reserved bytes that can be later used
+ */
+struct v4l2_mbus_framefmt___local {
+	__u32			width;
+	__u32			height;
+	__u32			code;
+	__u32			field;
+	__u32			colorspace;
+	union {
+		/* enum v4l2_ycbcr_encoding */
+		__u16			ycbcr_enc;
+		/* enum v4l2_hsv_encoding */
+		__u16			hsv_enc;
+	};
+	__u16			quantization;
+	__u16			xfer_func;
+	__u16			flags;
+	__u16			reserved[10];
+} __attribute__((preserve_access_index));
 
 enum ipu_isys_v4l2_cid_type {
 	IPU_STORE_CSI2_HEADER = 2,
@@ -46,22 +149,7 @@ struct event {
   char comm[TASK_COMM_LEN];
 };
 
-
-#define arch_spinlock_t pthread_mutex_t
-
 typedef u64 dma_addr_t;
-
-typedef struct raw_spinlock___local {
-	arch_spinlock_t raw_lock;
-} raw_spinlock_t;
-
-/* Non PREEMPT_RT kernels map spinlock to raw_spinlock */
-typedef struct spinlock___local {
-	union {
-		struct raw_spinlock___local rlock;
-
-	};
-} spinlock_t;
 
 struct kobject___local {
 	const char		*name;
@@ -220,6 +308,33 @@ static const char send_msg_types[N_IPU_FW_ISYS_SEND_TYPE][32] = {
 	"STREAM_FLUSH",
 	"STREAM_CLOSE"
 };
+
+/**
+ * enum ipu_fw_isys_state
+ */
+enum ipu_fw_isys_state {
+	IPU_FW_ISYS_UNINIT = 0,
+	IPU_FW_ISYS_IDLE,
+	IPU_FW_ISYS_IN_TRANFER,
+	N_IPU_FW_ISYS_STATES
+};
+
+static const char ipu_isys_state_msg[N_IPU_FW_ISYS_STATES
+][32] = {
+        "STREAM_UNINIT",
+	"STREAM_IDLE",
+	"STREAM_IN_TRANFER",
+};
+
+struct ipu6_fw_state {
+  enum ipu_fw_isys_send_type prev_send_t[IPU_ISYS_MAX_STREAMS];
+  enum ipu_fw_isys_resp_type prev_resp_t[IPU_ISYS_MAX_STREAMS];
+  enum ipu_fw_isys_state state[IPU_ISYS_MAX_STREAMS];
+  unsigned int prev_source[IPU_ISYS_MAX_STREAMS];
+  unsigned int prev_pid[IPU_ISYS_MAX_STREAMS];
+  int capture_cmd_count;
+  bool first;
+} g_state = { .first = true, .capture_cmd_count = 0};
 
 /**
  * enum ipu_fw_isys_queue_type
@@ -796,6 +911,56 @@ struct vb2_buffer___local {
 	u64			timestamp;
 } __attribute__((preserve_access_index));
 
+enum v4l2_ctrl_type___local {
+	V4L2_CTRL_TYPE_INTEGER	     = 1,
+	V4L2_CTRL_TYPE_BOOLEAN	     = 2,
+	V4L2_CTRL_TYPE_MENU	     = 3,
+	V4L2_CTRL_TYPE_BUTTON	     = 4,
+	V4L2_CTRL_TYPE_INTEGER64     = 5,
+	V4L2_CTRL_TYPE_CTRL_CLASS    = 6,
+	V4L2_CTRL_TYPE_STRING        = 7,
+	V4L2_CTRL_TYPE_BITMASK       = 8,
+	V4L2_CTRL_TYPE_INTEGER_MENU  = 9,
+
+	/* Compound types are >= 0x0100 */
+	V4L2_CTRL_COMPOUND_TYPES     = 0x0100,
+	V4L2_CTRL_TYPE_U8	     = 0x0100,
+	V4L2_CTRL_TYPE_U16	     = 0x0101,
+	V4L2_CTRL_TYPE_U32	     = 0x0102,
+	V4L2_CTRL_TYPE_AREA          = 0x0106,
+
+	V4L2_CTRL_TYPE_HDR10_CLL_INFO		= 0x0110,
+	V4L2_CTRL_TYPE_HDR10_MASTERING_DISPLAY	= 0x0111,
+
+	V4L2_CTRL_TYPE_H264_SPS             = 0x0200,
+	V4L2_CTRL_TYPE_H264_PPS		    = 0x0201,
+	V4L2_CTRL_TYPE_H264_SCALING_MATRIX  = 0x0202,
+	V4L2_CTRL_TYPE_H264_SLICE_PARAMS    = 0x0203,
+	V4L2_CTRL_TYPE_H264_DECODE_PARAMS   = 0x0204,
+	V4L2_CTRL_TYPE_H264_PRED_WEIGHTS    = 0x0205,
+
+	V4L2_CTRL_TYPE_FWHT_PARAMS	    = 0x0220,
+
+	V4L2_CTRL_TYPE_VP8_FRAME            = 0x0240,
+
+	V4L2_CTRL_TYPE_MPEG2_QUANTISATION   = 0x0250,
+	V4L2_CTRL_TYPE_MPEG2_SEQUENCE       = 0x0251,
+	V4L2_CTRL_TYPE_MPEG2_PICTURE        = 0x0252,
+
+	V4L2_CTRL_TYPE_VP9_COMPRESSED_HDR	= 0x0260,
+	V4L2_CTRL_TYPE_VP9_FRAME		= 0x0261,
+
+	V4L2_CTRL_TYPE_HEVC_SPS			= 0x0270,
+	V4L2_CTRL_TYPE_HEVC_PPS			= 0x0271,
+	V4L2_CTRL_TYPE_HEVC_SLICE_PARAMS	= 0x0272,
+	V4L2_CTRL_TYPE_HEVC_SCALING_MATRIX	= 0x0273,
+	V4L2_CTRL_TYPE_HEVC_DECODE_PARAMS	= 0x0274,
+
+	V4L2_CTRL_TYPE_AV1_SEQUENCE	    = 0x280,
+	V4L2_CTRL_TYPE_AV1_TILE_GROUP_ENTRY = 0x281,
+	V4L2_CTRL_TYPE_AV1_FRAME	    = 0x282,
+	V4L2_CTRL_TYPE_AV1_FILM_GRAIN	    = 0x283,
+};
 
 /**
  * struct v4l2_ctrl_handler - The control handler keeps track of all the
@@ -889,7 +1054,7 @@ struct v4l2_ctrl___local {
 	void *type_ops;
 	u32 id;
 	const char *name;
-	enum v4l2_ctrl_type type;
+	enum v4l2_ctrl_type___local type;
 	s64 minimum, maximum, default_value;
 	u32 elems;
 	u32 elem_size;

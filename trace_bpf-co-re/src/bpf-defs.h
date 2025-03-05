@@ -80,6 +80,10 @@ struct napi_struct___local {
 	unsigned intnapi_id;
 } __attribute__((preserve_access_index));
 
+struct xsk_buff_pool___local {
+        struct device___local *dev;
+        struct net_device___local *netdev;
+} __attribute__((preserve_access_index));
 
 struct xdp_desc___local {
 	__u64 addr;
@@ -89,7 +93,7 @@ struct xdp_desc___local {
 } __attribute__((preserve_access_index));
 
 struct xdp_rxq_info__local {
-	struct net_device__local *dev;
+	struct net_device___local *dev;
 	u32 queue_index;
 	u32 reg_state;
 	unsigned int napi_id;
@@ -101,7 +105,7 @@ struct xdp_rxq_info__local {
 } __attribute__((preserve_access_index));
 
 struct xdp_txq_info__local {
-	struct net_device__local *dev;
+	struct net_device___local *dev;
 } __attribute__((preserve_access_index));
 
 struct xdp_buff__local {
@@ -136,17 +140,18 @@ enum igc_state_t {
 };
 
 enum igc_ring_flags_t {
-	IGC_RING_FLAG_RX_3K_BUFFER = 0,
-	IGC_RING_FLAG_RX_BUILD_SKB_ENABLED = 1,
-	IGC_RING_FLAG_RX_SCTP_CSUM = 2,
-	IGC_RING_FLAG_RX_LB_VLAN_BSWAP = 3,
-	IGC_RING_FLAG_TX_CTX_IDX = 4,
-	IGC_RING_FLAG_TX_DETECT_HANG = 5,
-	IGC_RING_FLAG_AF_XDP_ZC = 6,
+        IGC_RING_FLAG_RX_3K_BUFFER = 0,
+        IGC_RING_FLAG_RX_BUILD_SKB_ENABLED = 1,
+        IGC_RING_FLAG_RX_SCTP_CSUM = 2,
+        IGC_RING_FLAG_RX_LB_VLAN_BSWAP = 3,
+        IGC_RING_FLAG_TX_CTX_IDX = 4,
+        IGC_RING_FLAG_TX_DETECT_HANG = 5,
+        IGC_RING_FLAG_AF_XDP_ZC = 6,
+        IGC_RING_FLAG_TX_HWTSTAMP = 7,
 };
 
 struct xsk_buff_pool__local {
-	struct net_device__local *netdev;
+	struct net_device___local *netdev;
 	u32 heads_cnt;
 	u16 queue_id;
   //struct xdp_buff_xsk__local *heads;
@@ -172,6 +177,23 @@ struct hwtstamp_config___local {
   int rx_filter;
 } __attribute__((preserve_access_index));
 
+struct ethtool_eee___local {
+        __u32 cmd;
+        __u32 supported;
+        __u32 advertised;
+        __u32 lp_advertised;
+        __u32 eee_active;
+        __u32 eee_enabled;
+        __u32 tx_lpi_enabled;
+        __u32 tx_lpi_timer;
+        __u32 reserved[2];
+} __attribute__((preserve_access_index));
+
+struct msix_entry___local {
+        u32 vector;
+        u16 entry;
+} __attribute__((preserve_access_index));
+
 /* Board specific private data structure */
 
 struct callback_head {
@@ -180,35 +202,35 @@ struct callback_head {
 };
 
 struct igc_adapter___local {
-  struct net_device___local *netdev;
 
-  unsigned long state;
+  struct net_device___local *netdev;
+  struct ethtool_eee___local eee;
+  u16 eee_advert;
+  long unsigned int state;
   unsigned int flags;
   unsigned int num_q_vectors;
-  u16 tx_ring_count;
-  u16 rx_ring_count;
-
-  u32 tx_hwtstamp_timeouts;
-  u32 tx_hwtstamp_skipped;
-  u32 rx_hwtstamp_cleared;
-
-  struct hwtstamp_config___local tstamp_config;
-
+  struct msix_entry___local *msix_entries;
+  u16 tx_work_limit;
+  u32 tx_timeout_count;
+  int num_tx_queues;
+  struct igc_ring___local *tx_ring[4];
+  int num_rx_queues;
+  struct igc_ring___local *rx_ring[4];
 } __attribute__((preserve_access_index));
 
-struct igc_q_vector__local;
-struct igc_tx_buffer__local;
-struct igc_rx_buffer__local;
+struct igc_q_vector___local;
+struct igc_tx_buffer___local;
+struct igc_rx_buffer___local;
 
 typedef u64 dma_addr_t;
 
-struct igc_ring__local {
-	struct igc_q_vector__local *q_vector;
-	struct net_device__local *netdev;
-	struct device__local *dev;
+struct igc_ring___local {
+	struct igc_q_vector___local *q_vector;
+	struct net_device___local *netdev;
+	struct device___local *dev;
 	union {
-		struct igc_tx_buffer__local *tx_buffer_info;
-		struct igc_rx_buffer__local *rx_buffer_info;
+		struct igc_tx_buffer___local *tx_buffer_info;
+		struct igc_rx_buffer___local *rx_buffer_info;
 	};
 	void *desc;
 	long unsigned int flags;
@@ -235,8 +257,8 @@ struct igc_ring__local {
 } __attribute__((preserve_access_index));
 
 
-struct igc_ring_container__local {
-	struct igc_ring__local *ring;
+struct igc_ring_container___local {
+	struct igc_ring___local *ring;
 	unsigned int total_bytes;
 	unsigned int total_packets;
 	u16 work_limit;
@@ -244,14 +266,14 @@ struct igc_ring_container__local {
 	u8 itr;
 } __attribute__((preserve_access_index));
 
-struct igc_q_vector {
+struct igc_q_vector___local {
 	struct igc_adapter___local *adapter;
 	void *itr_register;
 	u32 eims_value;
 	u16 itr_val;
 	u8 set_itr;
-	struct igc_ring_container__local rx;
-	struct igc_ring_container__local tx;
+	struct igc_ring_container___local rx;
+	struct igc_ring_container___local tx;
 	struct napi_struct___local napi;
 	struct callback_head rcu;
 	char name[25];

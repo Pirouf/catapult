@@ -4,9 +4,9 @@ AC_PROG_CC
 
 PKG_CHECK_MODULES([libelf], [libelf])
 PKG_CHECK_MODULES([libbpf], [libbpf])
-PKG_CHECK_MODULES([libbpf], [libbpf < 1.0.0],
-   [AC_DEFINE([HAVE_LIBBPF0], [1], [Define if you have libbpf0])],
-   []
+PKG_CHECK_MODULES([libbpf], [libbpf >= 1.0.0],
+   [],
+   [AC_DEFINE([HAVE_LIBBPF0], [1], [Define if you have libbpf0])]
 )
 [
     cat <<EOF  > config.mk ]

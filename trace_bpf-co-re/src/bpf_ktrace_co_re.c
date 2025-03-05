@@ -18,6 +18,7 @@
 	fprintf(stderr, "%s:%d - " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define DEBUGFS "/sys/kernel/debug/tracing/"
+#define MAX_LINK 50
 
 void read_trace_pipe(void)
 {
@@ -55,7 +56,7 @@ static const struct option long_options[] = {
 int main(int argc, char **argv)
 {
 	struct bpf_object *obj = NULL;
-	struct bpf_link *links[10];
+	struct bpf_link *links[MAX_LINK];
 	struct bpf_program *prog;
 	int opt, longindex = 0;
 	char filename[512];
@@ -63,6 +64,7 @@ int main(int argc, char **argv)
 	int err;
 	int rb_fd, j = 0;
 	bool ipu6_fw_logs=false;
+	const char *title;
 
 	char bpf_co_re_drv[64] = "\0";
 
@@ -91,13 +93,17 @@ int main(int argc, char **argv)
 	}
 
 	if (!bpf_co_re_drv[0]) {
-	  fprintf(stderr, "Usage: %s [-i <ifnet name>] | [-k <ipu6-isys | ipu6-d4xx | igc>] [-d]\n",
+	  fprintf(stderr, "Usage: %s [-i <ifnet name>] | [-k <ipu6-isys | ipu6-d4xx | igc-poll>] [-d]\n",
 		  argv[0]);
 	  return EXIT_FAILURE;
 	}
 	snprintf(filename, sizeof(filename), "/usr/share/catapult/%s_ktrace_kern.o", bpf_co_re_drv);
 	argc -= optind;
 	argv += optind;
+
+	for (j=0; j < MAX_LINK ; j++) {
+	  links[j] = NULL;
+	}
 
 	obj = bpf_object__open_file(filename, NULL);
 	err = libbpf_get_error(obj);
@@ -125,25 +131,40 @@ int main(int argc, char **argv)
 	}
 	printf("# tracer: nop\n"			\
 	       "#\n"					\
-	       "# Loaded BPF CO-RE file %s\n"		\
-	       , filename);
+	       "# Loaded BPF CO-RE program : %s\n"	\
+	       "# ", filename);
 
 	bpf_object__for_each_program(prog, obj) {
+#ifdef HAVE_LIBBPF0
+	  title = bpf_program__title(prog, false);
+#else
+	  title = bpf_program__section_name(prog);
+#endif
 	  links[j] = bpf_program__attach(prog);
 	  if (libbpf_get_error(links[j])) {
-	    fprintf(stderr, "ERROR: bpf_program__attach failed\n");
+	    printf("\n# %s uavailable",title);
 	    links[j] = NULL;
-	    goto out;
+	  } else {
+	    printf("\n# %s",title);
 	  }
 	  j++;
 	}
 
-	printf("# Attached kprobe and reading trace_pipe\n");
-	printf("# - Press Ctrl-C to unload program again\n");
+	printf("\n" \
+	       "# Attached kprobe and reading trace_pipe\n" \
+	       "# - Press Ctrl-C to unload program again\n");
 	read_trace_pipe();
 
 out:
-	bpf_link__destroy(link);
+	for (j=0; j < MAX_LINK  ; j++) {
+	  if (links[j] != NULL) { 
+	    bpf_link__destroy(links[j]);
+	    if (libbpf_get_error(links[j])) {
+	      fprintf(stderr, "ERROR: bpf_link__destroy failed\n");
+	    }
+	    links[j] = NULL;
+	  }
+	}
 	bpf_object__close(obj);
 	if (err)
 		return EXIT_FAILURE;

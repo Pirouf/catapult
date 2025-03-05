@@ -34,6 +34,7 @@ $(BPF_OBJ): %.o: %.c $(KERN_USER_H) $(EXTRA_DEPS) $(BPF_INCLUDES) $(BPF_EXTRA_IN
 	    -D __BPF_TRACING__ \
 	    $(BPF_CFLAGS) \
 	    -Wall \
+	    -fno-stack-protector \
 	    -Wno-unused-value \
 	    -Wno-pointer-sign \
 	    -Wno-compare-distinct-pointer-types \

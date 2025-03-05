@@ -27,14 +27,6 @@ struct {
 } rb SEC(".maps");
  */
 
-struct ipu6_fw_state {
-  enum ipu_fw_isys_send_type prev_send_t[IPU_ISYS_MAX_STREAMS];
-  enum ipu_fw_isys_resp_type prev_resp_t[IPU_ISYS_MAX_STREAMS];
-  unsigned int prev_source[IPU_ISYS_MAX_STREAMS];
-  unsigned int prev_pid[IPU_ISYS_MAX_STREAMS];
-  bool first;
-} g_state = { .first = true };
-
 /*
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
@@ -394,13 +386,21 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 	BPF_CORE_READ_INTO(&type,  resp, type);
 	BPF_CORE_READ_INTO(&buf_id,  resp, buf_id);
 
-
+	// assume IPU_FW_ISYS_IDLE initial state  
+	if (g_state.first) {
+	  for (u8 index = 0; index < IPU_ISYS_MAX_STREAMS; index++)
+	    g_state.state[index] = IPU_FW_ISYS_IDLE;
+	}
 
 	for (u8 index = 0; index < IPU_ISYS_MAX_STREAMS; index++) {
 	  if (index == (u8) stream_handle) {
 	    prev_type = g_state.prev_resp_t[index];
 	    send_type = g_state.prev_send_t[index];
 	    u32 pid = g_state.prev_pid[index];
+	    enum ipu_fw_isys_state _state = g_state.state[index];
+	    enum ipu_fw_isys_state _state_next = g_state.state[index];
+	    int _cmd_count_next = g_state.capture_cmd_count;
+	    enum ipu_fw_isys_send_type _cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;
 
 	    unsigned int source = (unsigned int) g_state.prev_source[index];
 	    if (prev_type != type) {
@@ -409,6 +409,34 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 		  bpf_vprintk("E|ipu_fw_isys;%u|%s|ret=%s|ipu6-trace", pid, resp_msg_types[prev_type], "None");
 		else
 		  bpf_printk("E|ipu_fw_isys;%u|%s|ret=%s|ipu6-trace", pid, resp_msg_types[prev_type], "None");
+	      }
+
+	      // IPU6 FW is single threaded state machine (FSM) : 
+	      // Can hold a maximum of 2 capture commands at any given point of time
+	      // Keep a counter of concurrent IPU6 FW capture commands :
+	      //    - increment by 1 from STREAM_START_AND_CAPTURE_ACK and STREAM_CAPTURE_ACK
+	      //    - decrement by 1 from STREAM_START_AND_CAPTURE_DONE and STREAM_CAPTURE_DONE
+	      //    - reset to 0 STREAM_FLUSH_ACK or STREAM_CLOSE_ACK
+	      switch (type) {
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_CAPTURE_ACK:
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_START_AND_CAPTURE_ACK:
+		_cmd_count_next++;
+		_cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;	
+		break;
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_CAPTURE_DONE:
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_START_AND_CAPTURE_DONE:
+		_cmd_count_next--;
+		_cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;	
+		break;
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_START_ACK:
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_STOP_ACK:
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_FLUSH_ACK:
+	      case IPU_FW_ISYS_RESP_TYPE_STREAM_CLOSE_ACK:
+		_cmd_count_next = 0;
+		_cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;	
+		break;
+	      default:
+		_cmd_count_next = g_state.capture_cmd_count;
 	      }
 
 	      if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
@@ -438,6 +466,60 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 			      isys_error_types[resp_error],			  
 			      stream_handle);
 	      }
+	      // mirror IPU6_ISYS internal state-machine based on ipu6 fw resp type
+	      switch (_state) {
+	      case IPU_FW_ISYS_UNINIT:
+		if (type == IPU_FW_ISYS_RESP_TYPE_STREAM_OPEN_DONE)
+		  _state_next = IPU_FW_ISYS_IDLE;
+		break;
+	      case IPU_FW_ISYS_IDLE:
+		if (type == IPU_FW_ISYS_RESP_TYPE_STREAM_START_ACK || 
+		    type == IPU_FW_ISYS_RESP_TYPE_STREAM_CAPTURE_ACK ||
+		    type == IPU_FW_ISYS_RESP_TYPE_STREAM_START_AND_CAPTURE_ACK)
+		  _state_next = IPU_FW_ISYS_IN_TRANFER;
+		else if (type == IPU_FW_ISYS_RESP_TYPE_STREAM_CLOSE_ACK)
+		  _state_next = IPU_FW_ISYS_UNINIT;
+		break;
+	      case IPU_FW_ISYS_IN_TRANFER:
+		if (type == IPU_FW_ISYS_RESP_TYPE_STREAM_FLUSH_ACK ||
+		    type == IPU_FW_ISYS_RESP_TYPE_STREAM_CLOSE_ACK)
+		  _state_next = IPU_FW_ISYS_IDLE;
+		break;
+	      default:
+		_state_next = IPU_FW_ISYS_UNINIT;
+	      }
+
+	      if (_state != _state_next) {
+		if (!g_state.first) {
+		  bpf_printk("E|ipu_fw_isys/fsm%u;%u|%s||ipu6-trace",
+			      index,
+			      pid,
+			      ipu_isys_state_msg[_state]);
+		}
+		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
+		  bpf_vprintk("B|ipu_fw_isys/fsm%u;%u|%s|streamid=%u:%u|ipu6-trace",
+			      index,
+			      pid,
+			      ipu_isys_state_msg[_state_next],
+			      source,stream_handle);
+		else
+		  bpf_vprintk("B|ipu_fw_isys/fsm%u;%u|%s||ipu6-trace",
+			      index,
+			      pid,
+			      ipu_isys_state_msg[_state_next]);
+		
+		g_state.state[index] = _state_next;
+	      }
+
+	      // mirror IPU6_ISYS internal state-machine ipu6 fw capture-cmd buffering
+	      if (_cmd_count_next != g_state.capture_cmd_count) {
+		bpf_printk("C|ipu_fw_isys;%u|%s/count|%d|ipu6-trace",
+			   pid,
+			   send_msg_types[_cmd_type],
+			   _cmd_count_next);
+		g_state.capture_cmd_count = _cmd_count_next;
+	      }
+
 	      if (g_state.first) g_state.first = false;
 	    }
 	    g_state.prev_resp_t[index] = type;
