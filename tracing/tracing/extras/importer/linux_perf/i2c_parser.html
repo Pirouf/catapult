@@ -62,7 +62,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const thread = this.importer.getOrCreatePseudoDeviceThread(
           'i2c-' + adapterNumber,  'i2c adapters');
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
+      pushLastSliceIfNeeded(thread, event[3], ts);
 
       thread.lastEntryTitle = 'i2c write';
       thread.lastEntryTs = ts;
@@ -89,7 +89,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const thread = this.importer.getOrCreatePseudoDeviceThread(
           'i2c-' + adapterNumber,  'i2c adapters');
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
+      pushLastSliceIfNeeded(thread, event[3], ts);
 
       thread.lastEntryTitle = 'i2c read';
       thread.lastEntryTs = ts;
@@ -116,7 +116,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const thread = this.importer.getOrCreatePseudoDeviceThread(
           'i2c-' + adapterNumber,  'i2c adapters');
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
+      pushLastSliceIfNeeded(thread, event[3], ts);
 
       thread.lastEntryTitle = 'i2c reply';
       thread.lastEntryTs = ts;
