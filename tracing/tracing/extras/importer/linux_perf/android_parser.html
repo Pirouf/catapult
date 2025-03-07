@@ -210,8 +210,25 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         }
 
         case 'C': {
-          const ppid = parseInt(eventData[1]);
-          const name = eventData[2];
+          let ptid = pid;
+          let ppid = parseInt(eventData[1]);
+          let name = eventData[2];
+          if( isNaN(ppid) ) {
+	      //
+              const parts = eventData[1].split(';');
+
+              if (!parts[0]) break;
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
+		  ppid = parseInt(parts[1]);
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
+		  ppid = pthread.pid;
+	      }
+	      ptid = pthread.thread.tid;
+	  }
           const value = parseInt(eventData[3]);
           let category = eventData[4];
           if (category === undefined) category = 'userspace';
@@ -233,7 +250,24 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         }
 
         case 'S': {
-          const ppid = parseInt(eventData[1]);
+          let ptid = pid;
+          let ppid = parseInt(eventData[1]);
+          if( isNaN(ppid) ) {
+	      //
+              const parts = eventData[1].split(';');
+
+              if (!parts[0]) break;
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
+		  ppid = parseInt(parts[1]);
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
+		  ppid = pthread.pid;
+	      }
+	      ptid = pthread.thread.tid;
+	  }
           const name = eventData[2];
           let cookie = parseInt(eventData[3]);
           const args = parseArgs(eventData[4]);
@@ -245,12 +279,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           if (category === undefined) category = 'userspace';
 
           const thread = this.model_.getOrCreateProcess(ppid)
-              .getOrCreateThread(pid);
+              .getOrCreateThread(ptid);
 
 	  if (eventBase.threadName !== unknownThreadName)
 	      thread.name = eventBase.threadName;
 
-          this.ppids_[pid] = ppid;
+          this.ppids_[ptid] = ppid;
           this.openAsyncSlice(thread, category, name, cookie, ts, args);
 
           break;
@@ -259,8 +293,23 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
         case 'F': {
           // Note: An async slice may end on a different thread from the one
           // that started it so this thread may not have been seen yet.
-          const ppid = parseInt(eventData[1]);
+          let ptid = pid;
+          let ppid = parseInt(eventData[1]);
+          if( isNaN(ppid) && eventData.length > 1) {
+	      //
+              const parts = eventData[1].split(';');
 
+              if (!parts[0]) break;
+
+	      let pthread;
+              if (!isNaN(parseInt(parts[1]))) {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
+	      } else {
+		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
+	      }
+	      ppid = pthread.pid;
+	      ptid = pthread.thread.tid;
+	  }
           const name = eventData[2];
           let cookie = parseInt(eventData[3]);
           const args = parseArgs(eventData[4]);
@@ -271,12 +320,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
           if (category === undefined) category = 'userspace';
 
           const thread = this.model_.getOrCreateProcess(ppid)
-              .getOrCreateThread(pid);
+              .getOrCreateThread(ptid);
 
 	  if (eventBase.threadName !== unknownThreadName)
 	      thread.name = eventBase.threadName;
 
-          this.ppids_[pid] = ppid;
+          this.ppids_[ptid] = ppid;
           this.closeAsyncSlice(thread, category, name, cookie, ts, args);
 
           break;
