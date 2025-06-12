@@ -406,9 +406,9 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 	    if (prev_type != type) {
 	      if (!g_state.first) {
 		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		  bpf_vprintk("E|ipu_fw_isys;%u|%s|ret=%s|ipu6-trace", pid, resp_msg_types[prev_type], "None");
+		  bpf_vprintk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", resp_msg_types[prev_type], "None");
 		else
-		  bpf_printk("E|ipu_fw_isys;%u|%s|ret=%s|ipu6-trace", pid, resp_msg_types[prev_type], "None");
+		  bpf_printk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", resp_msg_types[prev_type], "None");
 	      }
 
 	      // IPU6 FW is single threaded state machine (FSM) : 
@@ -440,28 +440,25 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 	      }
 
 	      if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		bpf_vprintk("B|ipu_fw_isys;%u|%s|streamid=%u:%u;sent=%s;error=%s|ipu6-trace",
-			    pid,
+		bpf_vprintk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;error=%s|ipu6-trace",
 			    resp_msg_types[type],
 			    source,stream_handle,
 			    send_msg_types[send_type],
 			    isys_error_types[resp_error]);
 	      else
-		bpf_printk("B|ipu_fw_isys;%u|%s|streamid=%u|ipu6-trace",
-			    pid,
+		bpf_printk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
 			    resp_msg_types[type],
 			    stream_handle);
 
 	      if (resp_error > 0) {
 		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		  bpf_vprintk("A|ipu_fw_isys;%u|%s|streamid=%u:%u;sent=%s;resp=%s|ipu6-trace",
-			      pid,
+		  bpf_vprintk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;resp=%s|ipu6-trace",
 			      isys_error_types[resp_error],			  
 			      source,stream_handle,
 			      send_msg_types[send_type],
 			      resp_msg_types[type]);
 		else
-		  bpf_printk("A|ipu_fw_isys;%u|%s|streamid=%u|ipu6-trace",
+		  bpf_printk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
 			      pid,
 			      isys_error_types[resp_error],			  
 			      stream_handle);
@@ -491,21 +488,18 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 
 	      if (_state != _state_next) {
 		if (!g_state.first) {
-		  bpf_printk("E|ipu_fw_isys/fsm%u;%u|%s||ipu6-trace",
+		  bpf_printk("E|ipu_fw_isys/fsm%u;/dev ipu6|%s||ipu6-trace",
 			      index,
-			      pid,
 			      ipu_isys_state_msg[_state]);
 		}
 		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		  bpf_vprintk("B|ipu_fw_isys/fsm%u;%u|%s|streamid=%u:%u|ipu6-trace",
+		  bpf_vprintk("B|ipu_fw_isys/fsm%u;/dev ipu6|%s|streamid=%u:%u|ipu6-trace",
 			      index,
-			      pid,
 			      ipu_isys_state_msg[_state_next],
 			      source,stream_handle);
 		else
-		  bpf_vprintk("B|ipu_fw_isys/fsm%u;%u|%s||ipu6-trace",
+		  bpf_vprintk("B|ipu_fw_isys/fsm%u;/dev ipu6|%s||ipu6-trace",
 			      index,
-			      pid,
 			      ipu_isys_state_msg[_state_next]);
 		
 		g_state.state[index] = _state_next;
@@ -513,8 +507,7 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___
 
 	      // mirror IPU6_ISYS internal state-machine ipu6 fw capture-cmd buffering
 	      if (_cmd_count_next != g_state.capture_cmd_count) {
-		bpf_printk("C|ipu_fw_isys;%u|%s/count|%d|ipu6-trace",
-			   pid,
+		bpf_printk("C|ipu_fw_isys;/dev ipu6|%s/count|%d|ipu6-trace",
 			   send_msg_types[_cmd_type],
 			   _cmd_count_next);
 		g_state.capture_cmd_count = _cmd_count_next;
@@ -780,5 +773,97 @@ int BPF_KRETPROBE(return_buffers_exit, int ret)
 
 	bpf_printk("F|%d|ipu_isys_queue|0|ret=%d|ipu6-trace", pid, ret);
 	//bpf_printk("graph_ret func=start_stream_firmware ret=%d", ret);
+	return 0;
+}
+
+/*
+ DWC PHY
+*/
+SEC("kprobe/dwc_dphy_ifc_read_mask")
+int BPF_KPROBE(dwc_dphy_ifc_read_mask_entry,struct ipu_isys___local *isys, u32 phy_id, u32 addr,
+	       u8 shift, u8 width)
+{
+	// check if PHY state read
+	if (addr != IPU_DWC_DPHY_STATE)
+	  return 0;
+
+	enum phy_fsm_state _state = PHY_FSM_STATE_INVALID;
+	// assume IPU_FW_ISYS_IDLE initial state
+	if (g_state.phy_first) {
+	    for (u8 index = 0; index < IPU_DWC_DPHY_MAX_NUM; index++)
+	      g_state.phy_state[index] = _state;
+	}
+
+	g_state.phyid_state_ret = (int) phy_id;
+	return 0;
+}
+
+SEC("kretprobe/dwc_dphy_ifc_read_mask")
+int BPF_KRETPROBE(dwc_dphy_ifc_read_mask_exit, u32 ret)
+{
+	// check if PHY state read
+	if (g_state.phyid_state_ret < 0)
+	  return 0;
+
+	for (u8 index = 0; index < IPU_DWC_DPHY_MAX_NUM; index++) {
+
+	  if (index == (u8) g_state.phyid_state_ret) {
+
+	    enum phy_fsm_state _state = g_state.phy_state[index];
+	    enum phy_fsm_state _state_next = ret;
+
+	    // DPHY state machine (FSM) :
+	    if (_state != _state_next ) {
+	      if (g_state.phy_first)
+		g_state.phy_first = false;
+	      else if (_state != PHY_FSM_STATE_INVALID)
+		bpf_printk("E|dphy-%u/fsm;/dev ipu6|%s||ipu6-trace",
+			   index,
+			   dphy_fsm_state_types[_state]);
+
+	      if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
+		bpf_vprintk("B|dphy-%u/fsm;/dev ipu6|%s|prev=%s|ipu6-trace",
+			    index,
+			    dphy_fsm_state_types[_state_next],
+			    dphy_fsm_state_types[_state]);
+	      } else {
+		bpf_vprintk("B|dphy-%u/fsm;/dev ipu6|%s|prev=%s|ipu6-trace",
+			    index,
+			    dphy_fsm_state_types[_state_next],
+			    dphy_fsm_state_types[_state]);
+	      }
+	      g_state.phy_state[index] = _state_next;
+	    }
+	    g_state.phyid_state_ret = -1;
+	    break;
+	  }
+	}
+	return 0;
+}
+
+static u32 get_mbps_by_hsfreq(u32 hsfreq)
+{
+        int i;
+
+        for (i = DPHY_FREQ_RANGE_NUM - 1; i >= 0; i--) {
+                if (freqranges[i].hsfreq == hsfreq)
+                        return freqranges[i].default_mbps;
+        }
+
+        return 0;
+}
+
+SEC("kprobe/dwc_dphy_write_mask")
+int BPF_KPROBE(dwc_dphy_write_mask_entry,struct ipu_isys___local *isys, u32 phy_id, u32 addr,
+	       u32 data, u8 shift, u8 width)
+{
+	// check if PHY state read
+	if (addr != IPU_DWC_DPHY_HSFREQRANGE)
+	  return 0;
+
+	bpf_printk("C|ipu_fw_isys;/dev ipu6|dphy-%u/linkfreq|%d|ipu6-trace",
+		   phy_id,
+		   get_mbps_by_hsfreq(data));
+
 	return 0;
 }

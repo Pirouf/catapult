@@ -319,12 +319,124 @@ enum ipu_fw_isys_state {
 	N_IPU_FW_ISYS_STATES
 };
 
-static const char ipu_isys_state_msg[N_IPU_FW_ISYS_STATES
-][32] = {
+static const char ipu_isys_state_msg[N_IPU_FW_ISYS_STATES][32] = {
         "STREAM_UNINIT",
 	"STREAM_IDLE",
 	"STREAM_IN_TRANFER",
 };
+
+/**
+ * enum dphy_fsm_state
+ */
+enum phy_fsm_state {
+        PHY_FSM_STATE_POWERON = 0,
+        PHY_FSM_STATE_BGPON = 1,
+        PHY_FSM_STATE_CAL_TYPE = 2,
+        PHY_FSM_STATE_BURNIN_CAL = 3,
+        PHY_FSM_STATE_TERMCAL = 4,
+        PHY_FSM_STATE_OFFSETCAL = 5,
+        PHY_FSM_STATE_OFFSET_LANE = 6,
+        PHY_FSM_STATE_IDLE = 7,
+        PHY_FSM_STATE_ULP = 8,
+        PHY_FSM_STATE_DDLTUNNING = 9,
+        PHY_FSM_STATE_SKEW_BACKWARD = 10,
+        PHY_FSM_STATE_INVALID,
+        N_PHY_FSM_STATE
+};
+#define IPU_DWC_DPHY_MAX_NUM             (6)
+#define IPU_DWC_DPHY_HSFREQRANGE         (0x08)
+#define IPU_DWC_DPHY_STATE               (0x1e)
+static const char dphy_fsm_state_types[N_PHY_FSM_STATE][32] = {
+	"DPHY_STATE_POWERON",
+	"DPHY_STATE_BGPON",
+        "DPHY_STATE_CAL_TYPE",
+	"DPHY_STATE_BURNIN_CAL",
+	"DPHY_STATE_TERMCAL",
+	"DPHY_STATE_OFFSETCAL",
+	"DPHY_STATE_OFFSET_LANE",
+	"DPHY_STATE_IDLE",
+	"DPHY_STATE_ULP",
+	"DPHY_STATE_DDLTUNNING",
+	"DPHY_STATE_SKEW_BACKWARD",
+	"DPHY_STATE_UNKOWN",
+};
+
+struct dwc_dphy_freq_range {
+        u8 hsfreq;
+        u32 min;
+        u32 max;
+        u32 default_mbps;
+        u32 osc_freq_target;
+};
+
+#define DPHY_FREQ_RANGE_NUM             (63)
+#define DPHY_FREQ_RANGE_INVALID_INDEX   (0xff)
+const struct dwc_dphy_freq_range freqranges[DPHY_FREQ_RANGE_NUM] = {
+        {0x00,  80,     97,     80,     335},
+        {0x10,  80,     107,    90,     335},
+        {0x20,  84,     118,    100,    335},
+        {0x30,  93,     128,    110,    335},
+        {0x01,  103,    139,    120,    335},
+        {0x11,  112,    149,    130,    335},
+        {0x21,  122,    160,    140,    335},
+        {0x31,  131,    170,    150,    335},
+        {0x02,  141,    181,    160,    335},
+        {0x12,  150,    191,    170,    335},
+        {0x22,  160,    202,    180,    335},
+        {0x32,  169,    212,    190,    335},
+        {0x03,  183,    228,    205,    335},
+        {0x13,  198,    244,    220,    335},
+        {0x23,  212,    259,    235,    335},
+        {0x33,  226,    275,    250,    335},
+        {0x04,  250,    301,    275,    335},
+        {0x14,  274,    328,    300,    335},
+        {0x25,  297,    354,    325,    335},
+        {0x35,  321,    380,    350,    335},
+        {0x05,  369,    433,    400,    335},
+        {0x16,  416,    485,    450,    335},
+        {0x26,  464,    538,    500,    335},
+        {0x37,  511,    590,    550,    335},
+        {0x07,  559,    643,    600,    335},
+        {0x18,  606,    695,    650,    335},
+        {0x28,  654,    748,    700,    335},
+        {0x39,  701,    800,    750,    335},
+        {0x09,  749,    853,    800,    335},
+        {0x19,  796,    905,    850,    335},
+        {0x29,  844,    958,    900,    335},
+        {0x3a,  891,    1010,   950,    335},
+        {0x0a,  939,    1063,   1000,   335},
+        {0x1a,  986,    1115,   1050,   335},
+        {0x2a,  1034,   1168,   1100,   335},
+        {0x3b,  1081,   1220,   1150,   335},
+        {0x0b,  1129,   1273,   1200,   335},
+        {0x1b,  1176,   1325,   1250,   335},
+        {0x2b,  1224,   1378,   1300,   335},
+        {0x3c,  1271,   1430,   1350,   335},
+        {0x0c,  1319,   1483,   1400,   335},
+        {0x1c,  1366,   1535,   1450,   335},
+        {0x2c,  1414,   1588,   1500,   335},
+        {0x3d,  1461,   1640,   1550,   208},
+        {0x0d,  1509,   1693,   1600,   214},
+        {0x1d,  1556,   1745,   1650,   221},
+        {0x2e,  1604,   1798,   1700,   228},
+        {0x3e,  1651,   1850,   1750,   234},
+        {0x0e,  1699,   1903,   1800,   241},
+        {0x1e,  1746,   1955,   1850,   248},
+        {0x2f,  1794,   2008,   1900,   255},
+        {0x3f,  1841,   2060,   1950,   261},
+        {0x0f,  1889,   2113,   2000,   268},
+        {0x40,  1936,   2165,   2050,   275},
+        {0x41,  1984,   2218,   2100,   281},
+        {0x42,  2031,   2270,   2150,   288},
+        {0x43,  2079,   2323,   2200,   294},
+        {0x44,  2126,   2375,   2250,   302},
+        {0x45,  2174,   2428,   2300,   308},
+        {0x46,  2221,   2480,   2350,   315},
+        {0x47,  2269,   2500,   2400,   321},
+        {0x48,  2316,   2500,   2450,   328},
+        {0x49,  2364,   2500,   2500,   335},
+};
+
 
 struct ipu6_fw_state {
   enum ipu_fw_isys_send_type prev_send_t[IPU_ISYS_MAX_STREAMS];
@@ -332,9 +444,12 @@ struct ipu6_fw_state {
   enum ipu_fw_isys_state state[IPU_ISYS_MAX_STREAMS];
   unsigned int prev_source[IPU_ISYS_MAX_STREAMS];
   unsigned int prev_pid[IPU_ISYS_MAX_STREAMS];
+  enum phy_fsm_state phy_state[IPU_DWC_DPHY_MAX_NUM];
   int capture_cmd_count;
   bool first;
-} g_state = { .first = true, .capture_cmd_count = 0};
+  bool phy_first;
+  int phyid_state_ret;
+} g_state = { .first = true, .phy_first = true, .phyid_state_ret = -1, .capture_cmd_count = 0};
 
 /**
  * enum ipu_fw_isys_queue_type
