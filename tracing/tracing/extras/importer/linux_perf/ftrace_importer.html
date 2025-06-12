@@ -766,41 +766,6 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     /**
      * @return {TimelineThread} A pseudo thread corresponding to the
-     * threadName.  Pseudo threads are for events that we want to break
-     * out to a separate timeline but would not otherwise happen.
-     * These threads are assigned to pid and given a
-     * unique (incrementing) TID.
-     */
-    getOrCreatePseudoThread(kernelThreadName, pid) {
-      const key = kernelThreadName+pid;
-      if (!this.kernelThreadStates_[key]) {
-        const tid = this.pseudoThreadCounter;
-        const thread = this.model_.getOrCreateProcess(pid).getOrCreateThread(
-            tid);
-        thread.name = kernelThreadName;
-
-        if ( !thread.parent.name ) {
-          const process = thread.parent;
-          process.sortIndex = Number.NEGATIVE_INFINITY;
-          process.important = true; // auto expend
-        }
-
-        this.kernelThreadStates_[key] = {
-          pid,
-          thread,
-          openSlice: undefined,
-          openSliceTS: undefined,
-          irqName: undefined,
-          irqNum: undefined
-        };
-        this.threadsByLinuxPid[tid] = thread;
-        this.pseudoThreadCounter--;
-      }
-      return this.kernelThreadStates_[key];
-    },
-
-    /**
-     * @return {TimelineThread} A pseudo thread corresponding to the
      * threadName.  Pseudo Xenomai threads are for events that we want to break
      * out to a separate timeline but would not otherwise happen.
      * These threads are assigned to pseudoKernelPID and given a

@@ -122,12 +122,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
 	      let pthread;
               if (!isNaN(parseInt(parts[1]))) {
-		  pthread = this.importer.getOrCreatePseudoThread(name, parseInt(parts[1]));
-		  ppid = parseInt(parts[1]);
+		  pthread = this.importer.getOrCreateKernelThread(name, parseInt(parts[1]), ptid);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(name);
-		  ppid = pthread.pid;
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 	      }
+	      ppid = pthread.pid;
 	      ptid = pthread.thread.tid;
 	  }
           const title = eventData[2];
@@ -166,9 +165,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
 	      let pthread;
               if (!isNaN(parseInt(parts[1]))) {
-		  pthread = this.importer.getOrCreatePseudoThread(name, parseInt(parts[1]));
+		  pthread = this.importer.getOrCreateKernelThread(name, parseInt(parts[1]), ptid);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(name);
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 	      }
 	      ppid = pthread.pid;
 	      ptid = pthread.thread.tid;
@@ -221,12 +220,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
 	      let pthread;
               if (!isNaN(parseInt(parts[1]))) {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
-		  ppid = parseInt(parts[1]);
+		  pthread = this.importer.getOrCreateKernelThread(name, parseInt(parts[1]), ptid);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
-		  ppid = pthread.pid;
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 	      }
+	      ppid = pthread.pid;
 	      ptid = pthread.thread.tid;
 	  }
           const value = parseInt(eventData[3]);
@@ -260,12 +258,11 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
 	      let pthread;
               if (!isNaN(parseInt(parts[1]))) {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
-		  ppid = parseInt(parts[1]);
+		  pthread = this.importer.getOrCreateKernelThread(name, parseInt(parts[1]), ptid);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
-		  ppid = pthread.pid;
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 	      }
+	      ppid = pthread.pid;
 	      ptid = pthread.thread.tid;
 	  }
           const name = eventData[2];
@@ -303,9 +300,9 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
 	      let pthread;
               if (!isNaN(parseInt(parts[1]))) {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0], parseInt(parts[1]));
+		  pthread = this.importer.getOrCreateKernelThread(name, parseInt(parts[1]), ptid);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(parts[0]);
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 	      }
 	      ppid = pthread.pid;
 	      ptid = pthread.thread.tid;
@@ -362,7 +359,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
               if (!isNaN(parseInt(parts[1]))) {
 		  ppid = parseInt(parts[1]);
 	      } else {
-		  pthread = this.importer.getOrCreatePseudoThread(name);
+		  pthread = this.importer.getOrCreatePseudoDeviceThread(name, parts[1]);
 		  ppid = pthread.pid;
 	      }
 	  }
