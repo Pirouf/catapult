@@ -370,7 +370,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   // Some kernel trace events are manually classified in slices and
   // hand-assigned a pseudo PID.
-  const pseudoKernelPID = 'Others';
+  const pseudoKernelPID = 'others';
 
   /**
    * Deduce the format of trace data. Linux kernels prior to 3.3 used one
@@ -755,13 +755,34 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * unique (incrementing) TID.
      */
     getOrCreatePseudoThread(threadName) {
-      let thread = this.kernelThreadStates_[threadName];
-      if (!thread) {
-        thread = this.getOrCreateKernelThread(threadName, pseudoKernelPID,
-            this.pseudoThreadCounter);
-        this.pseudoThreadCounter--;
-      }
-      return thread;
+	let key = threadName;
+	if (!this.kernelThreadStates_[key]) {
+	    const tid = this.pseudoThreadCounter;
+	    const pid = pseudoKernelPID;
+	    const thread = this.model_.getOrCreateProcess(pid).getOrCreateThread(tid);
+	    thread.name = threadName;
+
+            if ( !thread.parent.name ) {
+		const process = thread.parent;
+		process.pid = 0;
+		process.name = 'Kernel ['+ pid +']';
+		process.userFriendlyName = 'Kernel ['+ pid +']';
+		process.userFriendlyDetails = 'Kernel ['+ pid +']';
+		process.sortIndex = Number.NEGATIVE_INFINITY;
+		process.important = true; // auto expend
+            }
+	    this.kernelThreadStates_[key] = {
+		pid,
+		thread,
+		openSlice: undefined,
+		openSliceTS: undefined,
+		irqName: undefined,
+		irqNum: undefined
+	    };
+	    this.threadsByLinuxPid[tid] = thread;
+	    this.pseudoThreadCounter--;
+	}
+	return this.kernelThreadStates_[key];
     },
 
     /**

@@ -40,10 +40,12 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   // Matches the pm_qos_update_request record
   //  pm_qos_update_request: pm_qos_class=CPU_DMA_LATENCY value=20
-  const pmQosUpdateRequestRE = /pm_qos_class=(.+) value=(\d+)/;
+  const pmQosUpdateRequestClassRE = /pm_qos_class=(.+) value=(\S+)/;
+  //  pm_qos_update_request: CPU_DMA_LATENCY value=20
+  const pmQosUpdateRequestRE = /(.+) value=(\S+)/;
   // Matches the pm_qos_update_target record
   //  workqueue_execute_end: action=UPDATE_REQ prev_value=2000000000 curr_value=20
-  const pmQosUpdateTargetRE = /action=(.+) prev_value=(\d+) curr_value=(\d+)/;
+  const pmQosUpdateTargetRE = /action=(.+) prev_value=(\S+) curr_value=(\S+)/;
 
   function pushLastSliceIfNeeded(thread, id, currentTs) {
     if (thread.lastEntryTs !== undefined) {
@@ -63,14 +65,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Parses pm_qos_update_request events and sets up state in the importer.
      */
     pmQosUpdateRequest: function(eventName, cpuNumber, pid, ts, eventBase) {
-      const event = pmQosUpdateRequestRE.exec(eventBase.details);
+      let event = pmQosUpdateRequestRE.exec(eventBase.details);
+      if (!event) event = pmQosUpdateRequestClassRE.exec(eventBase.details);
       if (!event) return false;
 
       const pmQosClass = event[1];
       const req_value = event[2];
 
       const thread = this.importer.getOrCreatePseudoThread(
-          pmQosClass);      
+          pmQosClass);
       
       pushLastSliceIfNeeded(thread, 'update_request', ts);
       
