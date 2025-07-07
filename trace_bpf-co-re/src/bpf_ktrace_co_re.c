@@ -93,7 +93,7 @@ int main(int argc, char **argv)
 	}
 
 	if (!bpf_co_re_drv[0]) {
-	  fprintf(stderr, "Usage: %s [-i <ifnet name>] | [-k <ipu6-isys | ipu6-d4xx | igc-poll>] [-d]\n",
+	  fprintf(stderr, "Usage: %s [-i <ifnet name>] | [-k <ipu6-isys | ipu6-isys-psys | ipu6-d4xx | igc-poll>] [-d]\n",
 		  argv[0]);
 	  return EXIT_FAILURE;
 	}

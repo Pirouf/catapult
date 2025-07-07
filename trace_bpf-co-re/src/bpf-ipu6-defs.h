@@ -437,6 +437,107 @@ const struct dwc_dphy_freq_range freqranges[DPHY_FREQ_RANGE_NUM] = {
         {0x49,  2364,   2500,   2500,   335},
 };
 
+enum {
+        IPU6_FW_PSYS_CMD_QUEUE_COMMAND_ID = 0,
+        IPU6_FW_PSYS_CMD_QUEUE_DEVICE_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG0_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG1_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG2_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG3_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG4_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG5_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG6_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG7_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG8_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG9_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG10_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG11_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG12_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG13_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG14_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG15_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG16_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG17_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG18_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG19_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG20_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG21_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG22_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG23_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG24_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG25_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG26_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG27_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG28_COMMAND_ID,
+        IPU6_FW_PSYS_CMD_QUEUE_PPG29_COMMAND_ID,
+        IPU6_FW_PSYS_N_PSYS_CMD_QUEUE_ID
+};
+
+enum ipu_psys_cmd_state {
+	KCMD_STATE_PPG_NEW,
+	KCMD_STATE_PPG_START,
+	KCMD_STATE_PPG_ENQUEUE,
+	KCMD_STATE_PPG_STOP,
+	KCMD_STATE_PPG_COMPLETE,
+	N_KCMD_STATE_PPG_TYPE
+};
+
+static const char ipu_psys_cmd_state_types[N_KCMD_STATE_PPG_TYPE][32] = {
+	"KCMD_STATE_PPG_NEW",
+	"KCMD_STATE_PPG_START",
+	"KCMD_STATE_PPG_ENQUEUE",
+	"KCMD_STATE_PPG_STOP",
+	"KCMD_STATE_PPG_COMPLETE",
+};
+
+enum ipu_psys_ppg_state {
+	PPG_STATE_START = (1 << 0),
+	PPG_STATE_STARTING = (1 << 1),
+	PPG_STATE_STARTED = (1 << 2),
+	PPG_STATE_RUNNING = (1 << 3),
+	PPG_STATE_SUSPEND = (1 << 4),
+	PPG_STATE_SUSPENDING = (1 << 5),
+	PPG_STATE_SUSPENDED = (1 << 6),
+	PPG_STATE_RESUME = (1 << 7),
+	PPG_STATE_RESUMING = (1 << 8),
+	PPG_STATE_RESUMED = (1 << 9),
+	PPG_STATE_STOP = (1 << 10),
+	PPG_STATE_STOPPING = (1 << 11),
+	PPG_STATE_STOPPED = (1 << 12),
+};
+
+enum ipu_psys_ppg_type_state {
+	PPG_TYPE_STATE_START =  0,
+	PPG_TYPE_STATE_STARTING,
+	PPG_TYPE_STATE_STARTED,
+	PPG_TYPE_STATE_RUNNING,
+	PPG_TYPE_STATE_SUSPEND,
+	PPG_TYPE_STATE_SUSPENDING,
+	PPG_TYPE_STATE_SUSPENDED,
+	PPG_TYPE_STATE_RESUME,
+	PPG_TYPE_STATE_RESUMING,
+	PPG_TYPE_STATE_RESUMED,
+	PPG_TYPE_STATE_STOP,
+	PPG_TYPE_STATE_STOPPING,
+	PPG_TYPE_STATE_STOPPED,
+	N_STATE_PPG_TYPE
+};
+
+static const char ipu_psys_ppg_state_str[N_STATE_PPG_TYPE][32] = {
+	"PPG_STATE_START",
+	"PPG_STATE_STARTING",
+	"PPG_STATE_STARTED",
+	"PPG_STATE_RUNNING",
+	"PPG_STATE_SUSPEND",
+	"PPG_STATE_SUSPENDING",
+	"PPG_STATE_SUSPENDED",
+	"PPG_STATE_RESUME",
+	"PPG_STATE_RESUMING",
+	"PPG_STATE_RESUMED",
+	"PPG_STATE_STOP",
+	"PPG_STATE_STOPPING",
+	"PPG_STATE_STOPPED",
+};
 
 struct ipu6_fw_state {
   enum ipu_fw_isys_send_type prev_send_t[IPU_ISYS_MAX_STREAMS];
@@ -445,11 +546,14 @@ struct ipu6_fw_state {
   unsigned int prev_source[IPU_ISYS_MAX_STREAMS];
   unsigned int prev_pid[IPU_ISYS_MAX_STREAMS];
   enum phy_fsm_state phy_state[IPU_DWC_DPHY_MAX_NUM];
+  enum ipu_psys_ppg_state prev_ppg_state[IPU6_FW_PSYS_N_PSYS_CMD_QUEUE_ID];
+  unsigned int prev_ppg_id[IPU6_FW_PSYS_N_PSYS_CMD_QUEUE_ID];
   int capture_cmd_count;
   bool first;
   bool phy_first;
+  bool ppg_first;
   int phyid_state_ret;
-} g_state = { .first = true, .phy_first = true, .phyid_state_ret = -1, .capture_cmd_count = 0};
+} g_state = { .first = true, .phy_first = true,  .ppg_first = true, .phyid_state_ret = -1, .capture_cmd_count = 0};
 
 /**
  * enum ipu_fw_isys_queue_type
@@ -1206,3 +1310,246 @@ struct v4l2_subdev___local {
 } __attribute__((preserve_access_index));
 
 #endif
+
+struct cdev___local {
+	struct kobject___local kobj;
+} __attribute__((preserve_access_index));
+
+struct wait_queue_head {
+	spinlock_t		lock;
+	struct list_head	head;
+};
+typedef struct wait_queue_head wait_queue_head_t;
+
+struct ipu_psys_pdata___local {
+	void *base;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_capability___local {
+	u32 version;
+	u8 driver[20];
+	u32 pg_count;
+	u8 dev_model[32];
+	u32 reserved[17];
+} __attribute__ ((packed));
+
+struct ipu_psys___local {
+	struct ipu_psys_capability___local caps;
+	struct cdev___local cdev;
+	struct device___local dev;
+
+	struct mutex___local mutex;	/* Psys various */
+	int ready; /* psys fw status */
+	bool icache_prefetch_sp;
+	bool icache_prefetch_isp;
+	spinlock_t ready_lock;	/* protect psys firmware state */
+	spinlock_t pgs_lock;	/* Protect pgs list access */
+	struct list_head fhs;
+	struct list_head pgs;
+	struct list_head started_kcmds_list;
+	struct ipu_psys_pdata___local *pdata;
+	struct ipu_bus_device___local *adev;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_scheduler___local {
+	struct list_head ppgs;
+	struct mutex___local bs_mutex;  /* Protects buf_set field */
+	struct list_head buf_sets;
+} __attribute__((preserve_access_index));
+
+#define IPU_FW_PSYS_KERNEL_BITMAP_NOF_ELEMS		4
+#define IPU_FW_PSYS_RBM_NOF_ELEMS			5
+#define IPU_FW_PSYS_KBM_NOF_ELEMS			4
+
+struct ipu_fw_psys_process_group___local {
+	u64 token;
+	u64 private_token;
+	u32 routing_bitmap[IPU_FW_PSYS_RBM_NOF_ELEMS];
+	u32 kernel_bitmap[IPU_FW_PSYS_KBM_NOF_ELEMS];
+	u32 size;
+	u32 psys_server_init_cycles;
+	u32 pg_load_start_ts;
+	u32 pg_load_cycles;
+	u32 pg_init_cycles;
+	u32 pg_processing_cycles;
+	u32 pg_next_frame_init_cycles;
+	u32 pg_complete_cycles;
+	u32 ID;
+	u32 state;
+	u32 ipu_virtual_address;
+	u32 resource_bitmap;
+	u16 fragment_count;
+	u16 fragment_state;
+	u16 fragment_limit;
+	u16 processes_offset;
+	u16 terminals_offset;
+	u8 process_count;
+	u8 terminal_count;
+	u8 subgraph_count;
+	u8 protocol_version;
+	u8 base_queue_id;
+	u8 num_queues;
+	u8 mask_irq;
+	u8 error_handling_enable;
+} __attribute__ ((packed));
+
+struct ipu_psys_pg___local {
+	struct ipu_fw_psys_process_group___local *pg;
+	size_t size;
+	size_t pg_size;
+	dma_addr_t pg_dma_addr;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_fh___local {
+	struct ipu_psys___local *psys;
+	struct mutex___local mutex;	/* Protects bufs_list & kcmds fields */
+	struct list_head list;
+	/* Holds all buffers that this fh owns */
+	struct list_head bufs_list;
+	/* Holds all descriptors (fd:kbuffer associations) */
+	struct list_head descs_list;
+	struct list_head bufs_lru;
+	wait_queue_head_t wait;
+	struct ipu_psys_scheduler___local sched;
+
+	u32 num_bufs;
+	u32 num_descs;
+	u32 num_bufs_lru;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_ppg___local {
+	struct ipu_psys_pg___local *kpg;
+	struct ipu_psys_fh___local *fh;
+	struct list_head list;
+	struct list_head sched_list;
+	u64 token;
+	void *manifest;
+	struct mutex___local mutex;     /* Protects kcmd and ppg state field */
+	struct list_head kcmds_new_list;
+	struct list_head kcmds_processing_list;
+	struct list_head kcmds_finished_list;
+	enum ipu_psys_ppg_state state;
+	u32 pri_base;
+	int pri_dynamic;
+} __attribute__((preserve_access_index));
+
+struct ipu_fw_psys_buffer_set___local {
+	u64 token;
+	u32 kernel_enable_bitmap[IPU_FW_PSYS_KERNEL_BITMAP_NOF_ELEMS];
+	u32 terminal_enable_bitmap[IPU_FW_PSYS_KERNEL_BITMAP_NOF_ELEMS];
+	u32 routing_enable_bitmap[IPU_FW_PSYS_KERNEL_BITMAP_NOF_ELEMS];
+	u32 rbm[IPU_FW_PSYS_RBM_NOF_ELEMS];
+	u32 ipu_virtual_address;
+	u32 process_group_handle;
+	u16 terminal_count;
+	u8 frame_counter;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_kcmd___local;
+
+struct ipu_psys_buffer_set___local {
+	struct list_head list;
+	struct ipu_fw_psys_buffer_set___local *buf_set;
+	size_t size;
+	size_t buf_set_size;
+	dma_addr_t dma_addr;
+	void *kaddr;
+	struct ipu_psys_kcmd___local *kcmd;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_kbuffer___local {
+	u64 len;
+	void *userptr;
+	void *kaddr;
+	struct list_head list;
+	dma_addr_t dma_addr;
+} __attribute__((preserve_access_index));
+
+struct ipu_psys_buffer___local;
+
+struct ipu_psys_kcmd___local {
+	struct ipu_psys_fh___local *fh;
+	struct list_head list;
+	struct ipu_psys_buffer_set___local *kbuf_set;
+	enum ipu_psys_cmd_state state;
+	void *pg_manifest;
+	size_t pg_manifest_size;
+	struct ipu_psys_kbuffer___local **kbufs;
+	struct ipu_psys_buffer___local *buffers;
+	size_t nbuffers;
+	struct ipu_fw_psys_process_group___local *pg_user;
+	struct ipu_psys_pg___local *kpg;
+	u64 user_token;
+	u64 issue_id;
+	u32 priority;
+} __attribute__((preserve_access_index));
+
+
+/**
+ * struct ipu_psys_buffer - for input/output terminals
+ * @len:	total allocated size @ base address
+ * @userptr:	user pointer
+ * @fd:		DMA-BUF handle
+ * @data_offset:offset to valid data
+ * @bytes_used:	amount of valid data including offset
+ * @flags:	flags
+ */
+struct ipu_psys_buffer___local {
+	u64 len;
+	union {
+		int fd;
+		void *userptr;
+		u64 reserved;
+	} base;
+	u32 data_offset;
+	u32 bytes_used;
+	u32 flags;
+} __attribute__((preserve_access_index));
+
+#define IPU_BUFFER_FLAG_INPUT	(1 << 0)
+#define IPU_BUFFER_FLAG_OUTPUT	(1 << 1)
+#define IPU_BUFFER_FLAG_MAPPED	(1 << 2)
+#define IPU_BUFFER_FLAG_NO_FLUSH	(1 << 3)
+#define IPU_BUFFER_FLAG_DMA_HANDLE	(1 << 4)
+#define IPU_BUFFER_FLAG_USERPTR	(1 << 5)
+
+#define	IPU_PSYS_CMD_PRIORITY_HIGH	0
+#define	IPU_PSYS_CMD_PRIORITY_MED	1
+#define	IPU_PSYS_CMD_PRIORITY_LOW	2
+#define	IPU_PSYS_CMD_PRIORITY_NUM	3
+
+/**
+ * struct ipu_psys_command - processing command
+ * @issue_id:		unique id for the command set by user
+ * @user_token:		token of the command
+ * @priority:		priority of the command
+ * @pg_manifest:	userspace pointer to program group manifest
+ * @buffers:		userspace pointers to array of psys dma buf structs
+ * @pg:			process group DMA-BUF handle
+ * @pg_manifest_size:	size of program group manifest
+ * @bufcount:		number of buffers in buffers array
+ * @min_psys_freq:	minimum psys frequency in MHz used for this cmd
+ * @frame_counter:      counter of current frame synced between isys and psys
+ * @kernel_enable_bitmap:       enable bits for each individual kernel
+ * @terminal_enable_bitmap:     enable bits for each individual terminals
+ * @routing_enable_bitmap:      enable bits for each individual routing
+ * @rbm:                        enable bits for routing
+ *
+ * Specifies a processing command with input and output buffers.
+ */
+struct ipu_psys_command___local {
+	u64 issue_id;
+	u64 user_token;
+	u32 priority;
+	void *pg_manifest;
+	struct ipu_psys_buffer___local *buffers;
+	int pg;
+	u32 pg_manifest_size;
+	u32 bufcount;
+	u32 min_psys_freq;
+	u32 frame_counter;
+	u32 kernel_enable_bitmap[4];
+	u32 terminal_enable_bitmap[4];
+	u32 routing_enable_bitmap[4];
+	u32 rbm[5];
+} __attribute__((preserve_access_index));
