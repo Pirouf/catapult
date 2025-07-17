@@ -1409,6 +1409,7 @@ tr.exportTo('tr.e.importer', function() {
 
         for (const id in rawStackFrames) {
           const node = this.stackFrameTree_.getNode('g' + id);
+	  if (node === undefined) continue;
           const parentId = node.parentId;
           let parentNode = undefined;
           if (parentId !== undefined) {

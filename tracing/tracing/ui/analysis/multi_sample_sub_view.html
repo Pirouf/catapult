@@ -39,6 +39,7 @@ found in the LICENSE file.
     <div id="control">
       Sample View Option
     </div>
+    <div id='content'></div>
     <tr-ui-b-table id="table">
     </tr-ui-b-table>
   </template>
@@ -74,10 +75,18 @@ found in the LICENSE file.
             {
               label: 'Bottom-up (Heavy)',
               value: MultiDimensionalViewBuilder.ViewType.BOTTOM_UP_HEAVY_VIEW
+            },
+            {
+              label: 'Sunburst (Chart)',
+              value: MultiDimensionalViewBuilder.ViewType.SUNBURST_CHART_VIEW
             }
           ]);
       Polymer.dom(this.$.control).appendChild(viewSelector);
       this.$.table.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
+    },
+
+    get requiresTallView() {
+      return true;
     },
 
     get selection() {
@@ -140,54 +149,70 @@ found in the LICENSE file.
 
     updateContents_() {
       if (this.selection === undefined) {
+        this.$.content.textContent = '';
         this.$.table.tableColumns = [];
         this.$.table.tableRows = [];
         this.$.table.rebuild();
         return;
       }
-
-      const samplingData = this.createSamplingSummary_(
-          this.selection, this.viewOption);
-      const total = samplingData.values[0].total;
-      const columns = [
-        this.createPercentColumn_('Total', total),
-        this.createSamplesColumn_('Total'),
-        this.createPercentColumn_('Self', total),
-        this.createSamplesColumn_('Self'),
-        {
-          title: 'Function Name',
-          value(row) {
-            // For function that got deoptimized, show function name
-            // as red italic with a tooltip
-            if (row.deoptReason !== undefined) {
-              const spanEl = tr.ui.b.createSpan({
-                italic: true,
-                color: '#F44336',
-                tooltip: row.deoptReason
-              });
-              spanEl.innerText = row.functionName;
-              return spanEl;
+      if (this.viewOption == MultiDimensionalViewBuilder.ViewType.SUNBURST_CHART_VIEW) {
+         this.$.table.tableColumns = [];
+         this.$.table.tableRows = [];
+         this.$.table.rebuild();
+         this.$.content.textContent = '';
+         if (tr.isDefined('tr.ui.e.analysis.SamplingSummaryPanel')) {
+              var panel = new tr.ui.e.analysis.SamplingSummaryPanel();
+              this.$.content.appendChild(panel);
+              const samples = this.selection.filter(event => event instanceof tr.model.Sample);
+              panel.selection = samples;
+          } else {
+              this.$.content.textContent = 'SamplingSummaryPanel not installed. :(';
+          }
+      } else {
+          this.$.content.textContent = '';
+          const samplingData = this.createSamplingSummary_(
+              this.selection, this.viewOption);
+          const total = samplingData.values[0].total;
+          const columns = [
+            this.createPercentColumn_('Total', total),
+            this.createSamplesColumn_('Total'),
+            this.createPercentColumn_('Self', total),
+            this.createSamplesColumn_('Self'),
+            {
+              title: 'Function Name',
+              value(row) {
+                // For function that got deoptimized, show function name
+                // as red italic with a tooltip
+                if (row.deoptReason !== undefined) {
+                  const spanEl = tr.ui.b.createSpan({
+                    italic: true,
+                    color: '#F44336',
+                    tooltip: row.deoptReason
+                  });
+                  spanEl.innerText = row.functionName;
+                  return spanEl;
+                }
+                return row.functionName;
+              },
+              width: '150px',
+              cmp: (a, b) => a.functionName.localeCompare(b.functionName),
+              showExpandButtons: true
+            },
+            {
+              title: 'Location',
+              value(row) { return row.url; },
+              width: '250px',
+              cmp: (a, b) => a.url.localeCompare(b.url),
             }
-            return row.functionName;
-          },
-          width: '150px',
-          cmp: (a, b) => a.functionName.localeCompare(b.functionName),
-          showExpandButtons: true
-        },
-        {
-          title: 'Location',
-          value(row) { return row.url; },
-          width: '250px',
-          cmp: (a, b) => a.url.localeCompare(b.url),
-        }
-      ];
+          ];
 
-      this.processSampleRows_(samplingData.subRows);
-      this.$.table.tableColumns = columns;
-      this.$.table.sortColumnIndex = 1; /* Total samples */
-      this.$.table.sortDescending = true;
-      this.$.table.tableRows = samplingData.subRows;
-      this.$.table.rebuild();
+          this.processSampleRows_(samplingData.subRows);
+          this.$.table.tableColumns = columns;
+          this.$.table.sortColumnIndex = 1; /* Total samples */
+          this.$.table.sortDescending = true;
+          this.$.table.tableRows = samplingData.subRows;
+          this.$.table.rebuild();
+      }
     },
 
     createPercentColumn_(title, samplingDataTotal) {

@@ -294,6 +294,7 @@ tr.exportTo('tr.b', function() {
     this.topDownTreeViewRoot_ = undefined;
     this.topDownHeavyViewRoot_ = undefined;
     this.bottomUpHeavyViewNode_ = undefined;
+    this.sunburstChartViewNode_ = undefined;
     this.complete_ = false;
 
     this.maxDimensionDepths_ = new Array(dimensions);
@@ -316,7 +317,8 @@ tr.exportTo('tr.b', function() {
   MultiDimensionalViewBuilder.ViewType = {
     TOP_DOWN_TREE_VIEW: 0,
     TOP_DOWN_HEAVY_VIEW: 1,
-    BOTTOM_UP_HEAVY_VIEW: 2
+    BOTTOM_UP_HEAVY_VIEW: 2,
+    SUNBURST_CHART_VIEW: 3
   };
 
   MultiDimensionalViewBuilder.prototype = {
@@ -444,6 +446,8 @@ tr.exportTo('tr.b', function() {
           return this.buildTopDownHeavyView();
         case MultiDimensionalViewBuilder.ViewType.BOTTOM_UP_HEAVY_VIEW:
           return this.buildBottomUpHeavyView();
+        case MultiDimensionalViewBuilder.ViewType.SUNBURST_CHART_VIEW:
+          return undefined;
         default:
           throw new Error('Unknown multi-dimensional view type: ' + viewType);
       }
