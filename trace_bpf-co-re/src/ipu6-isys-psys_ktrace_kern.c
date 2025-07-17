@@ -90,6 +90,14 @@ int BPF_KRETPROBE(ipu_psys_kcmd_new_exit, int ret)
 	return 0;
 }
 
+/* BPF perfbuf map */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+	__uint(max_entries, 64);
+	__type(key, int);
+	__type(value, u32);
+} counters SEC(".maps");
+
 SEC("kprobe/ipu_psys_kcmd_start")
 int BPF_KPROBE(ipu_psys_kcmd_start_entry,struct ipu_psys___local *psys, struct ipu_psys_kcmd___local *kcmd){
 
@@ -118,6 +126,14 @@ int BPF_KPROBE(ipu_psys_kcmd_start_entry,struct ipu_psys___local *psys, struct i
 		     ipu_psys_cmd_state_types[old_kcmd_state],
 		      ppg_id, pg_size);
 	}
+	u32 cpu = bpf_get_smp_processor_id();
+	struct bpf_perf_event_value value_buf;
+	int ret;
+
+	ret = bpf_perf_event_read_value(&counters, cpu, &value_buf, sizeof(value_buf));
+	if (ret)
+		return 0;
+	bpf_vprintk("C|CPU %u:perf;Kernel|%s|%llx|ipu6-trace", cpu, "counter", value_buf.counter);
 	return 0;
 }
 
