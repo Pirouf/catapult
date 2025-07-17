@@ -35,24 +35,25 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   // Matches the rpm_resume record
   //rpm_resume: 0000:01:00.0 flags-0 cnt-1  dep-0  auto-0 p-0 irq-0 child-0
-  const rpmResumeRE = /(.+) flags-([0-9a-f]+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+  const rpmResumeRE = /(.+) flags-(\d+) cnt-(\d+)\s*dep-(\d+)\s*auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
   // Matches the rpm_suspend record
   // rpm_suspend: mmc0:0001 flags-d cnt-0  dep-0  auto-1 p-0 irq-0 child-0
-  const rpmSuspendRE = /(.+) flags-([0-9a-f]+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+  const rpmSuspendRE = /(.+) flags-(\d+) cnt-(\d+)\s*dep-(\d+)\s*auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
   // Matches the rpm_idle record
   // rpm_idle: 0000:00:14.0 flags-1 cnt-1  dep-0  auto-1 p-0 irq-0 child-0
-  const rpmIdleRE = /(.+) flags-([0-9a-f]+) cnt-(\d+)  dep-(\d+)  auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
+  const rpmIdleRE = /(.+) flags-(\d+) cnt-(\d+)\s*dep-(\d+)\s*auto-(\d+) p-(\d+) irq-(\d+) child-(\d+)/;
 
 
-  function pushLastSliceIfNeeded(thread, id, currentTs) {
-    if (thread.lastEntryTs !== undefined) {
-      const duration = currentTs - thread.lastEntryTs;
+  function pushLastSliceIfNeeded(kthread, currentTs) {
+    if (kthread.openSlice) {
+      const duration = currentTs - kthread.openSliceTS;
       const slice = new tr.model.ThreadSlice(
-            '', thread.lastEntryTitle,
-            ColorScheme.getColorIdForGeneralPurposeString(id),
-            thread.lastEntryTs, thread.lastEntryArgs, duration);
-      thread.thread.sliceGroup.pushSlice(slice);
+            '', kthread.lastEntryTitle,
+            ColorScheme.getColorIdForGeneralPurposeString(kthread.openSlice),
+            kthread.openSliceTS, kthread.lastEntryArgs, duration);
+      kthread.thread.sliceGroup.pushSlice(slice);
     }
+    kthread.openSlice = undefined;
   }
 
   RpmParser.prototype = {
@@ -74,13 +75,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const dev_irq = event[7];
       const dev_child = event[8];
 
-      const thread = this.importer.getOrCreatePseudoThread(
-          dev_name);
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          dev_name,  '/dev runtime pm');
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
+      pushLastSliceIfNeeded(thread, ts);
 
+      thread.openSliceTS = ts;
       thread.lastEntryTitle = 'RESUME';
-      thread.lastEntryTs = ts;
+      thread.openSlice = thread.lastEntryTitle + ':flag-' + dev_flags + '/cnt-' + dev_cnt;
       thread.lastEntryArgs = {
         'Dev flags': dev_flags,
         'Dev count': dev_cnt,
@@ -110,13 +112,14 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const dev_irq = event[7];
       const dev_child = event[8];
 
-      const thread = this.importer.getOrCreatePseudoThread(
-          dev_name);
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          dev_name,  '/dev runtime pm');
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
-
+      pushLastSliceIfNeeded(thread, ts);
+	
+      thread.openSliceTS = ts;
       thread.lastEntryTitle = 'SUSPEND';
-      thread.lastEntryTs = ts;
+      thread.openSlice = thread.lastEntryTitle + ':flag-' + dev_flags + '/cnt-' + dev_cnt;
       thread.lastEntryArgs = {
         'Dev flags': dev_flags,
         'Dev count': dev_cnt,
@@ -145,13 +148,15 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       const dev_irq = event[7];
       const dev_child = event[8];
 
-      const thread = this.importer.getOrCreatePseudoThread(
-          dev_name);
 
-      pushLastSliceIfNeeded(thread, event[1], ts);
+      const thread = this.importer.getOrCreatePseudoDeviceThread(
+          dev_name,  '/dev runtime pm');
 
+      pushLastSliceIfNeeded(thread, ts);
+	
+      thread.openSliceTS = ts;
       thread.lastEntryTitle = 'IDLE';
-      thread.lastEntryTs = ts;
+      thread.openSlice = thread.lastEntryTitle + ':flag-' + dev_flags + '/cnt-' + dev_cnt;
       thread.lastEntryArgs = {
         'Dev flags': dev_flags,
         'Dev count': dev_cnt,
