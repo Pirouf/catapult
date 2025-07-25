@@ -12,18 +12,52 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/table.html">
 <link rel="import" href="/tracing/value/ui/scalar_span.html">
+<link rel="import" href="/tracing/ui/base/line_chart.html">
 
 <dom-module id='tr-ui-a-multi-object-sub-view'>
   <template>
     <style>
     :host {
-      display: flex;
+      display: block;
       font-size: 12px;
     }
+    #container {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+    }
+    #content {
+      position: relative;
+      padding: 30px;
+    }
+    #chart svg {
+      display: block;
+    }
+    #drag_handle, #tab_summary_templates {
+      display: block;
+    }
+    #scalar {
+      flex-grow: 1;
+      white-space: nowrap;
+    }
+    #summary {
+      margin-top: 0px;
+      font-size: 12px;
+      flex: 1 1 auto;
+      align-self: stretch;
+    }
     </style>
-    <tr-ui-b-table id="content"></tr-ui-b-table>
+
+    <div id="container">
+      <div id="content"></div>
+    </div>
+    <tr-ui-b-tab-view id="tabs"></tr-ui-b-tab-view>
+    <div id="tab_summary_templates">
+      <tr-ui-b-table id="summary"></tr-ui-b-table>
+    </div>
+
   </template>
-</dom-module>
+ </dom-module>
 <script>
 'use strict';
 
@@ -33,65 +67,421 @@ Polymer({
 
   created() {
     this.currentSelection_ = undefined;
+    this.sortColumnChangedListener_ = e => this.onSortColumnChanged_(e);
+    this.referenceDisplayLabel = 'count';
   },
 
   ready() {
+    this.$.summary.showHeader = false;
     this.$.content.showHeader = false;
+    this.charts_ = [];
+    this.tabs_ = [];
+    this.mouseDownIndex_ = undefined;
+    this.curMouseIndex_ = undefined;
+    this.prevBrushedRange_  = new tr.b.math.Range();
+    this.addEventListener('sort-column-changed', this.sortColumnChangedListener_);
+  },
+
+  setBrushedIndices(mouseDownIndex, curIndex) {
+      this.mouseDownIndex_ = mouseDownIndex;
+      this.curMouseIndex_ = curIndex;
+      this.updateBrushedRange_();
+  },
+
+  buildNameColumnTitle_() {
+      this.nameColumnTitle_ = document.createElement('span');
+      this.nameColumnTitle_.style.display = 'inline-flex';
+      const nameEl = document.createElement('span');
+      nameEl.textContent = 'id';
+      this.nameColumnTitle_.appendChild(nameEl);
+      const toggleWidthEl = document.createElement('span');
+      toggleWidthEl.style.fontWeight = 'bold';
+      toggleWidthEl.style.background = '#bbb';
+      toggleWidthEl.style.color = '#333';
+      toggleWidthEl.style.padding = '0px 3px';
+      toggleWidthEl.style.marginRight = '8px';
+      toggleWidthEl.style.display = 'none';
+      toggleWidthEl.textContent = tr.v.ui.MIDLINE_HORIZONTAL_ELLIPSIS;
+      toggleWidthEl.addEventListener('click', this.toggleNameColumnWidth_.bind(this));
+      this.nameColumnTitle_.appendChild(toggleWidthEl);
+      return this.nameColumnTitle_;
+  },
+
+  toggleNameColumnWidth_(opt_event) {
+      if (opt_event !== undefined) {
+          opt_event.stopPropagation();
+          opt_event.preventDefault();
+      }
+  },
+
+  buildColumn_(displayLabel) {
+      const title = document.createElement('span');
+      title.textContent = displayLabel;
+      title.style.whiteSpace = 'pre';
+      const referenceDisplayLabel = this.referenceDisplayLabel;
+      return {
+          displayLabel,
+          title,
+          value(event) {
+              if (event[displayLabel] instanceof tr.b.Scalar)
+                  return event[displayLabel].value;
+              else if (event[displayLabel] instanceof tr.v.d.GenericSet)
+                  return event[displayLabel].asDict().values[0];
+              else if (event[displayLabel] instanceof tr.v.d.RelatedEventSet) {
+                  const linkEl = document.createElement('tr-ui-a-analysis-link');
+                  const snap_ = event[displayLabel].eventsByStableId_.get();
+                  linkEl.setSelectionAndContent(function() {
+                      return new tr.model.EventSet(snap_);
+                  }, snap_.userFriendlyName);
+                  return linkEl;
+              } else
+                  return event[displayLabel];
+          },
+          cmp(rowA, rowB) {
+              let valueA = 0;
+              let valueB = 0;
+              if (rowA[displayLabel] instanceof tr.b.Scalar && rowB[displayLabel] instanceof tr.b.Scalar) {
+                  valueA = rowA[displayLabel].value;
+                  valueB = rowB[displayLabel].value;
+                  return valueA - valueB;
+              } else if (rowA[displayLabel] instanceof tr.v.d.RelatedEventSet ||
+                         rowA[displayLabel] instanceof tr.v.d.GenericSet ||
+                         rowB[displayLabel] instanceof tr.v.d.RelatedEventSet ||
+                         rowB[displayLabel] instanceof tr.v.d.GenericSet) {
+                  return 0;
+              } else {
+                  return rowA[displayLabel].localeCompare(rowB[displayLabel]);
+              }
+          },
+      };
+  },
+
+  updateSummaryTable(tabIndex) {
+      const indexRange = this.prevBrushedRange_;
+      if (this.tabs_[tabIndex] === undefined ||
+          this.tabs_[tabIndex].length < 0 ||
+          indexRange === undefined ||
+          indexRange.min === indexRange.max) {
+          //table.showHeader = false;
+          return;
+      }
+      const displaytab_ = this.tabs_[tabIndex];
+      const displayLabels_ = Object.keys(displaytab_[0]);
+      const referenceDisplayLabelIndex = displayLabels_.indexOf(this.referenceDisplayLabel);
+      const table = this.$.summary;
+      table.tableColumns = [{
+          title: this.buildNameColumnTitle_(),
+          value(event) {
+              const count_ = displaytab_.indexOf(event);
+              return new tr.b.Scalar(tr.b.Unit.byName.count_smallerIsBetter,count_);
+          },
+          cmp(rowA, rowB) {
+              return displaytab_.indexOf(rowA) - displaytab_.indexOf(rowB);
+          },
+      }].concat(displayLabels_.map(l => this.buildColumn_(l)));
+      const mouseIndex_ = this.mouseDownIndex_ - 1 > 0 ? this.mouseDownIndex_ : 0;
+      const cursorIndex_ = this.curMouseIndex_ + 1 < this.tabs_[tabIndex].length ? this.curMouseIndex_ : this.tabs_[tabIndex].length - 1;
+      if (mouseIndex_ < cursorIndex_)
+          table.tableRows = displaytab_.filter(series => series.count.value > mouseIndex_).filter(series => series.count.value < cursorIndex_);
+      else if (mouseIndex_ > cursorIndex_)
+          table.tableRows = displaytab_.filter(series => series.count.value < mouseIndex_).filter(series => series.count.value > cursorIndex_);
+      else
+          table.tableRows = displaytab_.filter(series => series.count.value === mouseIndex_);
+      table.selectedTableColumnIndex = (referenceDisplayLabelIndex < 0) ? undefined : (1 + referenceDisplayLabelIndex);
+      this.removeEventListener('sort-column-changed', this.sortColumnChangedListener_);
+      table.sortColumnIndex = (1 + referenceDisplayLabelIndex);
+      table.sortDescending = false;
+      this.addEventListener('sort-column-changed', this.sortColumnChangedListener_);
+      table.showHeader = true;
+      table.rebuild();
+  },
+
+  updateBrushedRange_(chartEvent, chartIndex) {
+      if (chartIndex === undefined ||
+          chartIndex >= this.charts_.length)
+          return;
+      for (let c = 0;  c  < this.charts_.length; c++) {
+          const latencyChart_ = this.charts_[chartIndex];
+          let brushedRange = new tr.b.math.Range();
+          if (this.mouseDownIndex_ === undefined) {
+              latencyChart_.brushedRange = brushedRange;
+              continue;
+          } else if (chartIndex !== c) continue;
+          brushedRange = latencyChart_.computeBrushRangeFromIndices(this.mouseDownIndex_, this.curMouseIndex_);
+          latencyChart_.brushedRange = brushedRange;
+          this.prevBrushedRange_ = brushedRange;
+      }
   },
 
   get selection() {
-    return this.currentSelection_;
+      for (const latencyChart_ in this.charts_)
+            this.latencyChart_.brushedRange = this.currentSelection_ ;
+      return this.currentSelection_;
   },
 
   set selection(selection) {
-    this.currentSelection_ = selection;
+      this.currentSelection_ = selection;
+      this.createCharts();
+      if (this.tabs_.length === 0) this.defaultSummaryTable(selection);
+  },
 
-    const objectEvents = Array.from(selection).sort(
-        tr.b.math.Range.compareByMinTimes);
-
-    const timeSpanConfig = {
-      unit: tr.b.Unit.byName.timeStampInMs,
-      ownerDocument: this.ownerDocument
-    };
-    const table = this.$.content;
-    table.tableColumns = [
-      {
-        title: 'First',
-        value(event) {
-          if (event instanceof tr.model.ObjectSnapshot) {
-            return tr.v.ui.createScalarSpan(event.ts, timeSpanConfig);
-          }
-
-          const spanEl = document.createElement('span');
-          Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
-              event.creationTs, timeSpanConfig));
-          Polymer.dom(spanEl).appendChild(tr.ui.b.createSpan({
-            textContent: '-',
-            marginLeft: '4px',
-            marginRight: '4px'
-          }));
-          if (event.deletionTs !== Number.MAX_VALUE) {
-            Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
-                event.deletionTs, timeSpanConfig));
-          }
-          return spanEl;
-        },
-        width: '200px'
-      },
-      {
-        title: 'Second',
-        value(event) {
-          const linkEl = document.createElement('tr-ui-a-analysis-link');
-          linkEl.setSelectionAndContent(function() {
-            return new tr.model.EventSet(event);
-          }, event.userFriendlyName);
-          return linkEl;
-        },
-        width: '100%'
+  clearCharts_() {
+      const content = this.$.content;
+      while (Polymer.dom(content).firstChild) {
+	  Polymer.dom(content).removeChild(Polymer.dom(content).firstChild);
       }
-    ];
-    table.tableRows = objectEvents;
-    table.rebuild();
+      for (let c = 0; c < this.charts_.length; c++)
+          this.charts_[c] = undefined;
+      this.charts_ = [];
+      this.tabs_  = [];
+  },
+
+    createCharts() {
+      const selection = this.currentSelection_;
+      this.clearCharts_();
+      for (const latencyChart_ in this.charts_)
+          this.latencyChart_.brushedRange = selection.bounds;
+      const objectEvents = Array.from(selection).sort(tr.b.math.Range.compareByMinTimes);
+      const latencyData = {};
+      let width = 600;
+      let height = 300;
+      let absoluteWorstLatency_ = 0;
+      if (document.body.clientWidth !== undefined) {
+          width = document.body.clientWidth * 0.8;
+      }
+      objectEvents.forEach(function(snapshot) {
+          if (snapshot.objectInstance === undefined || (snapshot.objectInstance.category !== 'v4l2' && snapshot.objectInstance.category !== 'net'))
+              return;
+          const category_ = snapshot.objectInstance.category;
+          let process_ = snapshot.objectInstance.parent.name;
+          if (category_ === 'net')
+              process_ = snapshot.objectInstance.parent.eid;
+          const objInst_ = snapshot.objectInstance.name;
+
+          const ts_ = snapshot.ts;
+          if (latencyData[category_] === undefined) {
+              latencyData[category_] = {};
+              latencyData[category_][process_] = {};
+              latencyData[category_][process_][objInst_] = [];
+              latencyData[category_][process_][objInst_].push(snapshot);
+          } else if (latencyData[category_][process_] === undefined) {
+              latencyData[category_][process_] = {};
+              latencyData[category_][process_][objInst_] = [];
+              latencyData[category_][process_][objInst_].push(snapshot);
+          } else {
+              if (latencyData[category_][process_][objInst_] === undefined)
+                  latencyData[category_][process_][objInst_] = [];
+              latencyData[category_][process_][objInst_].push(snapshot);
+          }
+      });
+      if (latencyData === {})
+          return;
+      for (const c in latencyData) {
+          for (const p in latencyData[c]) {
+              const chart_ = new tr.ui.b.LineChart();
+              chart_.displayXInHover = true;
+              chart_.enableHoverBox = false;
+              chart_.textHeightPx_ = 6;
+              chart_.titleHeight = "12pt";
+              chart_.xAxisLabel = "count";
+              if (c === 'v4l2') {
+                  chart_.chartTitle = p + ' Frames Per-Second';
+                  chart_.yAxisLabel = "fps";
+              } else if (c === 'net') {
+                  chart_.chartTitle = p + ' Packets Per-Second';
+                  chart_.yAxisLabel = "pps";
+              } else {
+                  chart_.chartTitle = p + ' objects Per-Second';
+                  chart_.yAxisLabel = "ops";
+              }
+              chart_.graphHeight_ = height;
+              chart_.graphWidth = width;
+              let maxLength_ = 0;
+              let maxLatency_ = 0;
+              let minLatency_ = 0;
+              for (const i in latencyData[c][p]) {
+                  if (latencyData[c][p][i].length < 2)
+                      break;
+                  if (maxLength_ < latencyData[c][p][i].length)
+                      maxLength_ = latencyData[c][p][i].length;
+              }
+              const points = [];
+              const rows = [];
+              for (let x = 1; x < maxLength_; x++) {
+                  const point = {
+                      'x': x,
+                  };
+                  for (const i in latencyData[c][p]) {
+                      const serie = {};
+                      serie['count'] = new tr.b.Scalar(tr.b.Unit.byName.count,x);
+                      let  sec = undefined;
+                      if (latencyData[c][p][i][x] === undefined) {
+                          point[i] = undefined;
+                          continue
+                      } else {
+                          const latency_ = latencyData[c][p][i][x].ts - latencyData[c][p][i][x - 1].ts;
+                          sec = tr.b.convertUnit(latency_, tr.b.UnitPrefixScale.METRIC.MILLI, tr.b.UnitPrefixScale.METRIC.NONE);
+                          let data_ = 1 / sec ;
+                          serie[chart_.yAxisLabel] = new tr.b.Scalar(tr.b.Unit.byName.unitlessNumber,data_);
+                          if (c === 'net')
+                              serie['latency [us]'] = new tr.b.Scalar(tr.b.Unit.byName.timeDurationInMs, tr.b.convertUnit(latency_, tr.b.UnitPrefixScale.METRIC.MILLI, tr.b.UnitPrefixScale.METRIC.MICRO));
+                          else
+                              serie['latency [ms]'] = new tr.b.Scalar(tr.b.Unit.byName.timeDurationInMs, latency_);
+                          serie['name'] = i;
+                          serie['type'] = c;
+                          if (c === 'net') {
+                              const ethtype_ = tr.e.net.EthertypeToHuman(latencyData[c][p][i][x].args['protocol']);
+                              serie['type'] = latencyData[c][p][i][x].args['type'];
+                              serie['ethtype'] = ethtype_ !== 'UNKNOWN' ? ethtype_ : latencyData[c][p][i][x].args['protocol'];
+                          } else if (c === 'v4l2') {
+                              serie['type'] = latencyData[c][p][i][x].args['type'];
+                              serie['seqno'] = new tr.b.Scalar(tr.b.Unit.byName.count,latencyData[c][p][i][x].args['seq_num']);;
+                          }
+                          //serie['args'] = new tr.v.d.GenericSet([latencyData[c][p][i][x].args]);
+                          //serie['args'] = latencyData[c][p][i][x].args;
+                          serie['event'] = new tr.v.d.RelatedEventSet(latencyData[c][p][i][x]);
+                          rows.push(serie);
+                          if (c === 'v4l2' && data_ > 120) {
+                              point[i] = undefined;
+                              continue
+                          } else if (c === 'net') {
+                              data_ = Math.floor(data_);
+                              if (isNaN(data_) || data_ === Number.POSITIVE_INFINITY) {
+                                  point[i] = undefined;
+                                  continue
+                              }
+                          }
+                          if (absoluteWorstLatency_ < data_)
+                              absoluteWorstLatency_ = data_;
+                          if (maxLatency_ < data_)
+                              maxLatency_ = data_;
+                          if (minLatency_ > data_)
+                              minLatency_ = data_;
+                          point[i] = data_;
+                      }
+                  }
+                  points.push(point);
+                  //rows.push(series);
+              }
+              Polymer.dom(this.$.content).appendChild(chart_);
+              chart_.overrideDataRange = tr.b.math.Range.fromExplicitRange(minLatency_ <= 5 ? 0 : minLatency_ - 5, maxLatency_ + 5);
+              chart_.data = points;
+              this.charts_.push(chart_);
+              this.tabs_.push(rows);
+          }
+      }
+      const svgEl = Polymer.dom(this.$.content).querySelectorAll('svg');
+      for (let c = 0; c < this.charts_.length; c++) {
+          const chart_ = this.charts_[c];
+          /**
+           */
+          const LatencyTextSize = Math.max(30, 16 * String(Math.ceil(absoluteWorstLatency_)).length);
+          d3.selectAll(svgEl).attr('height', height * 1.333).attr('width', width + LatencyTextSize + 100);
+          const svgSel = d3.selectAll(svgEl)[0][c];
+          const chartAreaEl = Polymer.dom(svgSel).querySelector('#chart-area');
+          const chartAreaSel = d3.select(chartAreaEl);
+          chartAreaSel.attr('transform', 'translate(' + LatencyTextSize + ', ' + 30 + ')');
+          const titleEl = Polymer.dom(chartAreaEl).querySelector('#title');
+          const titleSel = d3.select(titleEl);
+          titleSel.attr('transform', 'translate(' + width * 0.5 + ',-5)');
+          chartAreaSel.selectAll('.legend').remove();
+          let series;
+          let seriesText;
+          if (chart_.showTitleInLegend) {
+              series = [...chart_.seriesByKey_.values()].filter(series => series.title !== '').filter(series => series.color !== 'transparent').reverse();
+              seriesText = series => series.title;
+          } else {
+              series = [...chart_.seriesByKey_.values()].filter(series => series.color !== 'transparent').reverse();
+              seriesText = series => series.key;
+          }
+          const legendEntriesSel = chartAreaSel.selectAll('.legend').data(series);
+          legendEntriesSel.enter().append('foreignObject')
+              .attr('class', 'legend')
+              .attr('x', width + 2)
+              .attr('width', series => Math.max(100, 16 * series.key.length))
+              .attr('height', 18)
+              .attr('transform', (series, i) => 'translate(' + Math.min(-100, -16 * series.key.length) + ',' + ((i * 18) + 72) + ')')
+              .append('xhtml:body')
+              .style('margin', 0)
+              .append('tr-ui-b-chart-legend-key')
+              .property('color', series => ((this.currentHighlightedLegendKey === series.key) ? series.highlightedColor : series.color))
+              .property('width', series => Math.max(100, 16 * series.key.length))
+              .property('target', series => series.target)
+              .property('title', series => series.title)
+              .property('optional', series => series.optional)
+              .property('enabled', series => series.enabled)
+              .text(seriesText);
+          chart_.addEventListener('item-mousedown', function(e) {
+              this.mouseDownIndex_ = e.index;
+              this.curMouseIndex_ = e.index;
+              this.updateBrushedRange_(this, c);
+          }.bind(this));
+          chart_.addEventListener('item-mousemove', function(e) {
+              if (e.button === undefined) return;
+              this.curMouseIndex_ = e.index;
+              this.updateBrushedRange_(this, c);
+          }.bind(this));
+          chart_.addEventListener('item-mouseup', function(e) {
+              this.curMouseIndex = e.index;
+              this.updateBrushedRange_(this, c);
+              this.updateSummaryTable(c);
+              /**
+               */
+              if (this.prevBrushedRange_.range === 1 && this.charts_[c].brushedRange.range === 1 && (this.prevBrushedRange_.min === this.charts_[c].brushedRange.min))
+                  this.charts_[c].brushedRange = new tr.b.math.Range();
+              this.mouseDownIndex_ = undefined;
+          }.bind(this));
+      }
+  },
+
+  defaultSummaryTable(selection)  {
+
+      const objectEvents = Array.from(selection).sort(
+          tr.b.math.Range.compareByMinTimes);
+
+      const timeSpanConfig = {
+          unit: tr.b.Unit.byName.timeStampInMs,
+          ownerDocument: this.ownerDocument
+      };
+      const table = this.$.summary;
+      table.tableColumns = [
+          {
+              title: 'First',
+              value(event) {
+                  if (event instanceof tr.model.ObjectSnapshot) {
+                      return tr.v.ui.createScalarSpan(event.ts, timeSpanConfig);
+                  }
+
+                  const spanEl = document.createElement('span');
+                  Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
+                      event.creationTs, timeSpanConfig));
+                  Polymer.dom(spanEl).appendChild(tr.ui.b.createSpan({
+                      textContent: '-',
+                      marginLeft: '4px',
+                      marginRight: '4px'
+                  }));
+                  if (event.deletionTs !== Number.MAX_VALUE) {
+                      Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
+                          event.deletionTs, timeSpanConfig));
+                  }
+                  return spanEl;
+              },
+              width: '200px'
+          },
+          {
+              title: 'Second',
+              value(event) {
+                  const linkEl = document.createElement('tr-ui-a-analysis-link');
+                  linkEl.setSelectionAndContent(function() {
+                      return new tr.model.EventSet(event);
+                  }, event.userFriendlyName);
+                  return linkEl;
+              },
+              width: '100%'
+          }
+      ];
+      table.tableRows = objectEvents;
+      table.rebuild();
   }
 });
 
