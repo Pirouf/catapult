@@ -760,7 +760,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         radioEl.checked = true;
       }
       
-      if (perfEvt[2] == '-1' ) {
+      if (perfEvt[2] == '-1' ||
+         (targetEl['perfRecordFilter'] === '' && DEFAULT_DISABLED_PERF_EVTS.includes(label)) ) {
         radioEl.disabled = true;
       }
 
@@ -1034,6 +1035,8 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     {'label': '0',
      'value': ''}]
   const DEFAULT_CALLSTACK_DEPTH = 'g4';
+  const DEFAULT_DISABLED_PERF_EVTS = ["intel_pt//", "intel_pt//k", "intel_pt/branch=1/u"];
+
   const TestExports = {};
 
   // Matches the tracing option format
@@ -1053,7 +1056,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
   const optionSltRE = new RegExp(
     'option-(Slt|hideSlt)-(.+)\\?(.*)!(.+)');
   TestExports.optionSltRE = optionSltRE;
-  
+
   RecordSelectionDialogRt.prototype = {
     __proto__: tr.ui.b.Overlay.prototype,
 
@@ -1203,6 +1206,17 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     },
     set perfRecordFilter(value) {
       this.perfRecordFilter_ = value;
+      const PerfEvtsRadioButtons = Polymer.dom(this.perfCategoriesContainerEl_).querySelectorAll('input');
+      if (!PerfEvtsRadioButtons.length ) return;
+      for (let i = 0; i < PerfEvtsRadioButtons.length; ++i) {
+         const RadioEl = PerfEvtsRadioButtons[i];
+         if (DEFAULT_DISABLED_PERF_EVTS.includes(RadioEl.getAttribute('value').split('!')[0].replace('perf-', ''))) {
+             if (!value)
+                 RadioEl.disabled = true;
+             else
+                 RadioEl.disabled = false;
+         }
+      }
     },
 
     get traceTriggerCount() {
@@ -1729,14 +1743,13 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
     },
     enabledByDefaultPerfCategory_() {
       let perfEvt = this.perfRecord;
-      let perfEvtSuffix = ''; 
-      if (this.perfRecordFilter !== undefined)
-        perfEvtSuffix = '?F' + this.perfRecordFilter;
-
-      if ( perfEvt !== undefined && 
-          !perfEvt.startsWith('perf-None') &&
-          !perfEvt.endsWith('!-1')) {
-        return [ perfEvt + this.perfRecordGraph + perfEvtSuffix ];
+      if (perfEvt === undefined) return [];
+      const label = perfEvt.split('!')[0].replace('perf-', '');
+      let perfEvtSuffix = '?F';
+      if (DEFAULT_DISABLED_PERF_EVTS.includes(label) && this.perfRecordFilter !== undefined)
+          perfEvtSuffix += this.perfRecordFilter;
+      if (!perfEvt.startsWith('perf-None') && !perfEvt.endsWith('!-1')) {
+          return [ perfEvt + this.perfRecordGraph + perfEvtSuffix ];
       } else {
         return [];
       }
@@ -2035,6 +2048,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
               '.default-enabled-perf-categories');
         Polymer.dom(perfCategoriesContainerParentEl_).removeChild(this.perfCategoriesContainerEl_);
         Polymer.dom(perfCategoriesContainerParentEl_).appendChild(perfCategoriesNewContainerEl_);
+        this.perfCategoriesContainerEl_ = perfCategoriesNewContainerEl_;
         this.perfCategoriesContainerEl_.hidden = false;
       }
     },
