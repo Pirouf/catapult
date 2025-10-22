@@ -1174,7 +1174,7 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     storeStackFrames_(stackFrames) {
-      if ( stackFrames[1] !== undefined )
+      if ( stackFrames !== undefined && stackFrames[1] !== undefined )
         this.stackFrameEvents_ = stackFrames;
       else
         this.stackFrameEvents_ = {

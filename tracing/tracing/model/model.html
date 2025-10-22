@@ -274,10 +274,9 @@ tr.exportTo('tr', function() {
     },
 
     addStackFrame(stackFrame) {
-      if (this.stackFrames[stackFrame.id]) {
-        throw new Error('Stack frame already exists');
+      if (this.stackFrames[stackFrame.id] === undefined) {
+        this.stackFrames[stackFrame.id] = stackFrame;
       }
-      this.stackFrames[stackFrame.id] = stackFrame;
       return stackFrame;
     },
 
