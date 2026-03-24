@@ -12,7 +12,7 @@ bpf_ktrace_co_re_LDADD = $(libbpf_LIBS) $(libelf_LIBS) -lpthread -lrt -lnuma
 
 # It is expected that you define the variables BPF_TARGETS
 # as a space-separated list
-BPF_TARGETS = ipu6-d4xx_ktrace_kern ipu6-isys_ktrace_kern ipu6-isys-psys_ktrace_kern igc-poll_ktrace_kern
+BPF_TARGETS = ipu7-ipu6-isys_ktrace_kern ipu6-d4xx_ktrace_kern ipu6-isys_ktrace_kern ipu6-isys-psys_ktrace_kern igc-poll_ktrace_kern
 
 @BPF_TOOLCHAIN_MAKE_RULES@
 
