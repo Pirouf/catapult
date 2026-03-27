@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
-#include "ipu6-isys_ktrace_kern.c"
+#include "ipu6-isys-legacy_ktrace_kern.c"
 
 extern int LINUX_KERNEL_VERSION __kconfig;
 

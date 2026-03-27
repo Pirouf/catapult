@@ -9,7 +9,7 @@
 
 #include <bpf/bpf_core_read.h> /* CO-RE */
 #include <bpf/bpf_tracing.h> /* BPF_KPROBE */
-#include "bpf-ipu7-ipu6-defs.h"
+#include "bpf-ipu6-defs.h"
 
 #ifndef bpf_target_defined
 #warning "Tracing need __TARGET_ARCH_xxx defines"
@@ -19,6 +19,22 @@ char _license[] SEC("license") = "GPL";
 u32 _version SEC("version") = LINUX_VERSION_CODE;
 
 extern int LINUX_KERNEL_VERSION __kconfig;
+
+/* https://nakryiko.com/posts/bpf-ringbuf/
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 256 * 1024);
+} rb SEC(".maps");
+ */
+
+/*
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, IPU_ISYS_MAX_STREAMS);
+	__uint(key_size, sizeof(int));
+	__uint(value_size, sizeof(struct ipu6_state));
+} ipu6_state_map SEC(".maps");
+*/
 
 /* https://nakryiko.com/posts/bpf-tips-printk/ */
 /* define our own struct definition if our vmlinux.h is outdated */
@@ -73,43 +89,75 @@ enum bpf_func_id___x { BPF_FUNC_snprintf___x = 42 /* avoid zero */ };
  * attribute "preserve_access_index". Notice the triple-underscore after the
  * real struct name, which libbpf match and adjust prior to BPF-loading.
 */
-SEC("kprobe/ipu6_fw_isys_complex_cmd")
-int BPF_KPROBE(ipu_fw_isys_complex_cmd_entry,	struct ipu6_isys___local *isys,
-						const unsigned int stream_handle,
-						void *cpu_mapped_buf,
-						dma_addr_t dma_mapped_buf,
-						size_t size, u16 send_type)
+SEC("kprobe/ipu_fw_isys_complex_cmd")
+int BPF_KPROBE(ipu_fw_isys_complex_cmd_entry, struct ipu_isys___local *isys,
+			const unsigned int stream_handle,
+			void *cpu_mapped_buf,
+			dma_addr_t dma_mapped_buf,
+			size_t size, enum ipu_fw_isys_send_type send_type)
 {
 	u64 id;
 	__u32 pid;
-
-	if (send_type >= N_IPU_FW_ISYS_SEND_TYPE)
-		return -EINVAL;
-
-	if (stream_handle >= IPU_ISYS_MAX_STREAMS)
-		return -EINVAL;
-
-	enum ipu6_fw_isys_send_type s_type = (enum ipu6_fw_isys_send_type) send_type;
+	//__u32 tid;
+	//struct event *e;
+	//struct task_struct___local *task;
+	//u64 ts, *start_ts, start_time = 0;
 
 	// get PID and TID of exiting thread/process
 	id = bpf_get_current_pid_tgid();
 	pid = id >> 32;
-	struct ipu6_isys_stream___local streams[1];
-	BPF_CORE_READ_INTO(&streams[0], isys, streams[0]);
-	struct ipu6_isys_stream___local *_stream = &streams[0];
+	//tid = (u32)id;
 
+	// reserve sample from BPF ringbuf
+	//e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	//if (!e)
+	//  return 0;
+
+	// fill out the sample with data
+	//task = (struct task_struct___local *)bpf_get_current_task();
+	//start_time = BPF_CORE_READ(task, start_time);
+	//e->duration_ns = bpf_ktime_get_ns() - start_time;
+	//e->pid = pid;
+	//e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+	//bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	// send data to user-space for post-processing
+	//bpf_ringbuf_submit(e, 0);
+
+	// Find the kernels BTF_ID for struct ipu_isys
+	//id = bpf_core_type_id_kernel(struct ipu_isys___local);
+
+	//unsigned int stream_opened;
+	//BPF_CORE_READ_INTO(&stream_opened,  isys, stream_opened);
+
+	//struct ipu_bus_device___local *adev;
+	//adev = (struct ipu_bus_device___local *)BPF_CORE_READ(isys, adev);
+	//struct device___local dev;
+	//BPF_CORE_READ_INTO(&dev,  adev, dev);
+
+	//char driver_name[32];
+	//BPF_CORE_READ_INTO(&driver_name,  media_dev, driver_name);
+
+	//struct media_device___local media_dev;
+	//BPF_CORE_READ_INTO(&media_dev,  isys, media_dev);
+
+	//struct v4l2_device___local v4l2_dev;
+	//BPF_CORE_READ_INTO(&v4l2_dev,  isys, v4l2_dev);
+
+	struct ipu_isys_pipeline___local *pipes[IPU_ISYS_MAX_STREAMS];
+	pipes[stream_handle] = (struct ipu_isys_pipeline___local *)BPF_CORE_READ(isys, pipes[stream_handle]);
 	atomic_t sequence;
-	int source;	// SSI stream source
-	BPF_CORE_READ_INTO(&sequence,  _stream, sequence);
-	BPF_CORE_READ_INTO(&source,  _stream, stream_source);
+	int source;	/* SSI stream source */
+	BPF_CORE_READ_INTO(&sequence,  pipes[stream_handle], sequence);
+	BPF_CORE_READ_INTO(&source,  pipes[stream_handle], source);
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
-	  bpf_vprintk("graph_ent func=ipu_fw_isys_complex_cmd args=state_req=%s;stream=%d:%u;seq=%u",
-		      ipu6_send_msg_types[s_type], source, stream_handle, sequence.counter);
+	  bpf_vprintk("graph_ent func=ipu_fw_isys_complex_cmd args=state_req=%s;streamid=%d:%u;seq=%u",
+		      send_msg_types[send_type], source, stream_handle, sequence.counter);
 	} else {
 	  bpf_printk("graph_ret func=ipu_fw_isys_complex_cmd args=state_req=%s;streamid=%d:%u",
-		      ipu6_send_msg_types[send_type], source, stream_handle);
+		      send_msg_types[send_type], source, stream_handle);
 	}
+
 	for (u8 index=0; index < IPU_ISYS_MAX_STREAMS; index++) {
 	  if (index == (u8) stream_handle) {
 	    g_state.prev_send_t[index] = send_type;
@@ -121,9 +169,34 @@ int BPF_KPROBE(ipu_fw_isys_complex_cmd_entry,	struct ipu6_isys___local *isys,
 	return 0;
 }
 
-SEC("kretprobe/ipu6_fw_isys_complex_cmd")
+SEC("kretprobe/ipu_fw_isys_complex_cmd")
 int BPF_KRETPROBE(ipu_fw_isys_complex_cmd_exit, int ret)
 {
+	//u64 id;
+	//u32 pid, tid;
+	//struct event *e;
+	//struct task_struct___local *task;
+	//u64 ts, *start_ts, start_time = 0;
+
+	// get PID and TID of exiting thread/process
+	//id = bpf_get_current_pid_tgid();
+	//pid = id >> 32;
+	//tid = (u32)id;
+
+	// reserve sample from BPF ringbuf
+	//e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	//if (!e)
+	//  return 0;
+
+	// fill out the sample with data
+	//task = (struct task_struct___local *)bpf_get_current_task();
+	//start_time = BPF_CORE_READ(task, start_time);
+	//e->duration_ns = bpf_ktime_get_ns() - start_time;
+	//e->pid = pid;
+	//e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+	//bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	// send data to user-space for post-processing
+	//bpf_ringbuf_submit(e, 0);
 
 	bpf_printk("graph_ret func=ipu_fw_isys_complex_cmd ret=%d", ret);
 	return 0;
@@ -131,10 +204,10 @@ int BPF_KRETPROBE(ipu_fw_isys_complex_cmd_exit, int ret)
 
 /*
 */
-SEC("kprobe/ipu6_fw_isys_simple_cmd")
-int BPF_KPROBE(ipu_fw_isys_simple_cmd_entry, 	struct ipu6_isys___local *isys,
-						const unsigned int stream_handle,
-						u16 send_type)
+SEC("kprobe/ipu_fw_isys_simple_cmd")
+int BPF_KPROBE(ipu_fw_isys_simple_cmd_entry, struct ipu_isys___local *isys,
+			const unsigned int stream_handle,
+			enum ipu_fw_isys_send_type send_type)
 {
 	// get PID of exiting thread/process
 	u64 id;
@@ -142,26 +215,20 @@ int BPF_KPROBE(ipu_fw_isys_simple_cmd_entry, 	struct ipu6_isys___local *isys,
 	id = bpf_get_current_pid_tgid();
 	pid = id >> 32;
 
-	if (send_type >= N_IPU_FW_ISYS_SEND_TYPE)
-		return -EINVAL;
-
-	enum ipu6_fw_isys_send_type s_type = (enum ipu6_fw_isys_send_type) send_type;
-
-	struct ipu6_isys_stream___local stream[1];
-	BPF_CORE_READ_INTO(&stream[0], isys, streams[stream_handle]);
-	struct ipu6_isys_stream___local *_stream = &stream[0];
+	struct ipu_isys_pipeline___local *pipes[IPU_ISYS_MAX_STREAMS];
+	pipes[stream_handle] = (struct ipu_isys_pipeline___local *)BPF_CORE_READ(isys, pipes[stream_handle]);
 	atomic_t sequence;
-	int source;	// SSI stream source
-
-	BPF_CORE_READ_INTO(&sequence,  _stream, sequence);
-	BPF_CORE_READ_INTO(&source,  _stream, stream_source);
+	int source;	/* SSI stream source */
+	BPF_CORE_READ_INTO(&sequence,  pipes[stream_handle], sequence);
+	BPF_CORE_READ_INTO(&source,  pipes[stream_handle], source);
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 	  bpf_vprintk("graph_ent func=ipu_fw_isys_simple_cmd args=state_req=%s;streamid=%d:%u;seq=%u",
-		      ipu6_send_msg_types[s_type], source, stream_handle, sequence.counter);
+		      send_msg_types[send_type],
+		      source, stream_handle, sequence.counter);
 	} else {
 	  bpf_printk("graph_ent func=ipu_fw_isys_simple_cmd args=state_req=%s;streamid=%d:%u",
-		      ipu6_send_msg_types[send_type], source, stream_handle);
+		      send_msg_types[send_type], source, stream_handle);
 	}
 
 	for (u8 index = 0; index < IPU_ISYS_MAX_STREAMS; index++) {
@@ -175,12 +242,13 @@ int BPF_KPROBE(ipu_fw_isys_simple_cmd_entry, 	struct ipu6_isys___local *isys,
 	return 0;
 }
 
-SEC("kretprobe/ipu6_fw_isys_simple_cmd")
+SEC("kretprobe/ipu_fw_isys_simple_cmd")
 int BPF_KRETPROBE(ipu_fw_isys_simple_cmd_exit, int ret)
 {
 	bpf_printk("graph_ret func=ipu_fw_isys_simple_cmd ret=%d", ret);
 	return 0;
 }
+
 
 /*
 */
@@ -196,36 +264,37 @@ int BPF_KPROBE(buf_queue_entry, struct vb2_buffer___local *vb)
 	struct vb2_queue___local *vbq;
 	vbq = (struct vb2_queue___local *)BPF_CORE_READ(vb, vb2_queue);
 
-	struct ipu6_isys_queue___local *aq = container_of(vbq, struct ipu6_isys_queue___local, vbq);
-	struct ipu6_isys_video___local *av = container_of(aq, struct ipu6_isys_video___local, aq);
+	struct ipu_isys_queue___local *aq = container_of(vbq, struct ipu_isys_queue___local, vbq);
+	struct ipu_isys_video___local *av = container_of(aq, struct ipu_isys_video___local, aq);
 
-	struct ipu6_isys___local *isys;
-	isys = (struct ipu6_isys___local *)BPF_CORE_READ(av, isys);
+	struct ipu_isys___local *isys;
+	isys = (struct ipu_isys___local *)BPF_CORE_READ(av, isys);
 
-	unsigned int reset;
-	BPF_CORE_READ_INTO(&reset,  av, reset);
+	bool reset_needed;
+	BPF_CORE_READ_INTO(&reset_needed,  isys, reset_needed);
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
-	  unsigned int streaming;
-	  BPF_CORE_READ_INTO(&streaming,  av, streaming);
+	  unsigned int reset;
+	  BPF_CORE_READ_INTO(&reset,  av, reset);
 
-	  int stream_handle;
-	  int source;	// SSI stream source
-	  BPF_CORE_READ_INTO(&stream_handle, av, stream, stream_handle);
-	  BPF_CORE_READ_INTO(&source,  av, stream, stream_source);
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
 
-	  bpf_vprintk("S|%u|ipu_isys_queue|0|streamid=%u:%u;call=buf_queue;queue_idx=%u;streaming=%d;reset_needed=%s|ipu6-trace",
+	  bpf_vprintk("S|%u|ipu_isys_queue|0|streamid=%u:%u;call=buf_queue;queue_idx=%u;nr_queues=%d;nr_streaming=%d;streaming=%d;reset_needed=%s|ipu6-trace",
 		      pid,
-		      source, stream_handle,
-		      index, streaming, reset ? "true" : "false");
+		      ip.source, ip.stream_handle,
+		      index, ip.nr_queues, ip.nr_streaming, ip.streaming,
+		      reset_needed ? "true" : "false");
 	} else {
 	  bpf_printk("S|%u|ipu_isys_queue|0|call=buf_queue;queue_idx=%u;reset_needed=%s|ipu6-trace",
 		      pid,
-		      index, reset ? "true" : "false");
+		      index,
+		      reset_needed ? "true" : "false");
 	}
 	return 0;
 }
+
 
 SEC("kretprobe/buf_queue")
 int BPF_KRETPROBE(buf_queue_exit, int ret)
@@ -241,8 +310,8 @@ int BPF_KRETPROBE(buf_queue_exit, int ret)
 /*
 */
 SEC("kprobe/buffer_list_get")
-int BPF_KPROBE(buffer_list_get_entry, struct ipu6_isys_stream___local *stream,
-	       struct ipu6_isys_buffer_list___local *bl)
+int BPF_KPROBE(buffer_list_get_entry, struct ipu_isys_pipeline___local *ip,
+	       struct ipu_isys_buffer_list___local *bl)
 {
 	unsigned int nbufs;
 	BPF_CORE_READ_INTO(&nbufs,  bl, nbufs);
@@ -250,9 +319,9 @@ int BPF_KPROBE(buffer_list_get_entry, struct ipu6_isys_stream___local *stream,
 	atomic_t sequence;
 	int source;	// SSI stream source
 	int stream_handle;
-	BPF_CORE_READ_INTO(&sequence,  stream, sequence);
-	BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
+	BPF_CORE_READ_INTO(&sequence,  ip, sequence);
+	BPF_CORE_READ_INTO(&source,  ip, source);
+	BPF_CORE_READ_INTO(&stream_handle,  ip, stream_handle);
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 	  bpf_vprintk("graph_ent func=buffer_list_get args=nbufs=%u;streamid=%d:%u;seq=%u",
@@ -277,59 +346,8 @@ int BPF_KRETPROBE(buffer_list_get_exit, int ret)
 
 /*
 */
-SEC("kprobe/return_buffers")
-int BPF_KPROBE(return_buffers_entry, struct ipu6_isys_queue___local *aq,
-				 enum vb2_buffer_state state)
-{
-	// get PID of exiting thread/process
-	u32 pid = bpf_get_current_pid_tgid()  >> 32;
-
-	struct vb2_queue___local vbq;
-	BPF_CORE_READ_INTO(&vbq,  aq, vbq);
-
-	struct ipu6_isys_video___local *av = container_of(aq, struct ipu6_isys_video___local, aq);
-
-	unsigned int reset;
-	BPF_CORE_READ_INTO(&reset,  av, reset);
-
-	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
-
-	  struct ipu6_isys_stream___local *stream;
-	  stream = (struct ipu6_isys_stream___local *)BPF_CORE_READ(av, stream);
-	  int source;	// SSI stream source
-	  int stream_handle;
-
-	  BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	  BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
-
-	  bpf_vprintk("S|%u|ipu_isys_queue|0|streamid=%u:%u;call=return_buffers;used_qbuf=%u;uses_req=%u;state=%s|ipu6-trace",
-		      pid,
-		      source, stream_handle,
-		      vbq.uses_qbuf,vbq.uses_requests,
-		      vb2_buf_state_type[state]); // args
-	} else {
-	  bpf_printk("S|%u|ipu_isys_queue|0|call=return_buffers;used_qbuf=%u;state=%s|ipu6-trace",
-		     pid,
-		     vbq.uses_qbuf,
-		     vb2_buf_state_type[state]); // args
-	}
-	return 0;
-}
-
-SEC("kretprobe/return_buffers")
-int BPF_KRETPROBE(return_buffers_exit, int ret)
-{
-	// get PID of exiting thread/process
-	u32 pid = bpf_get_current_pid_tgid()  >> 32;
-
-	bpf_printk("F|%d|ipu_isys_queue|0|ret=%d|ipu6-trace", pid, ret);
-	return 0;
-}
-
-/*
-*/
-SEC("kprobe/ipu6_isys_buffer_list_queue")
-int BPF_KPROBE(ipu_isys_buffer_list_queue_entry, struct ipu6_isys_buffer_list___local *bl,
+SEC("kprobe/ipu_isys_buffer_list_queue")
+int BPF_KPROBE(ipu_isys_buffer_list_queue_entry, struct ipu_isys_buffer_list___local *bl,
 				unsigned long op_flags,
 				enum vb2_buffer_state state)
 {
@@ -344,41 +362,29 @@ int BPF_KPROBE(ipu_isys_buffer_list_queue_entry, struct ipu6_isys_buffer_list___
 }
 
 
-SEC("kretprobe/ipu6_isys_buffer_list_queue")
+SEC("kretprobe/ipu_isys_buffer_list_queue")
 int BPF_KRETPROBE(ipu_isys_buffer_list_queue_exit, int ret)
 {
 	bpf_printk("graph_ret func=ipu_isys_buffer_list_queue ret=%d", ret);
 	return 0;
 }
 
-
 /*
 */
-SEC("kretprobe/ipu6_fw_isys_get_resp")
-int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu6_fw_isys_resp_info_abi___local *resp)
+SEC("kretprobe/ipu_fw_isys_get_resp")
+int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu_fw_isys_resp_info_abi___local *resp)
 {
-	struct ipu6_fw_isys_error_info_abi___local error_info;
+	struct ipu_fw_isys_error_info_abi___local error_info;
 	BPF_CORE_READ_INTO(&error_info,  resp, error_info);
-	u32 _error = error_info.error;
+	char stream_handle;	/* SSI stream source */
 
-	if (_error >= N_IPU_FW_ISYS_ERROR)
-		return -EINVAL;
-
-	enum ipu6_fw_isys_error err_code = (enum ipu6_fw_isys_error) _error;
-
-	u64 buf_id;
-	u8 pin_id;
-	u8 stream_handle;
-	u8 _type;
-	enum ipu6_fw_isys_resp_type type, prev_type;
-	enum ipu6_fw_isys_send_type send_type;
-	const char *resp_error;
+	int buf_id;
+	enum ipu_fw_isys_resp_type type, prev_type;
+	enum ipu_fw_isys_send_type send_type;
+	enum ipu_fw_isys_error resp_error = error_info.error;
 	BPF_CORE_READ_INTO(&stream_handle,  resp, stream_handle);
-	BPF_CORE_READ_INTO(&_type,  resp, type);
+	BPF_CORE_READ_INTO(&type,  resp, type);
 	BPF_CORE_READ_INTO(&buf_id,  resp, buf_id);
-	BPF_CORE_READ_INTO(&pin_id,  resp, pin_id);
-
-	type = (enum ipu6_fw_isys_resp_type) _type;
 
 	// assume IPU_FW_ISYS_IDLE initial state
 	if (g_state.first) {
@@ -388,22 +394,21 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu6_fw_isys_resp_info_abi__
 
 	for (u8 index = 0; index < IPU_ISYS_MAX_STREAMS; index++) {
 	  if (index == (u8) stream_handle) {
-	    prev_type = (enum ipu6_fw_isys_resp_type) g_state.prev_resp_t[index];
-	    send_type = (enum ipu6_fw_isys_send_type) g_state.prev_send_t[index];
-
+	    prev_type = g_state.prev_resp_t[index];
+	    send_type = g_state.prev_send_t[index];
 	    u32 pid = g_state.prev_pid[index];
 	    enum ipu_fw_isys_state _state = g_state.state[index];
 	    enum ipu_fw_isys_state _state_next = g_state.state[index];
 	    int _cmd_count_next = g_state.capture_cmd_count;
-	    enum ipu6_fw_isys_send_type _cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;
+	    enum ipu_fw_isys_send_type _cmd_type = IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE;
 
 	    unsigned int source = (unsigned int) g_state.prev_source[index];
 	    if (prev_type != type) {
 	      if (!g_state.first) {
 		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		  bpf_vprintk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", ipu6_resp_msg_types[prev_type], "None");
+		  bpf_vprintk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", resp_msg_types[prev_type], "None");
 		else
-		  bpf_printk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", ipu6_resp_msg_types[prev_type], "None");
+		  bpf_printk("E|ipu_fw_isys;/dev ipu6|%s|ret=%s|ipu6-trace", resp_msg_types[prev_type], "None");
 	      }
 
 	      // IPU6 FW is single threaded state machine (FSM) :
@@ -434,37 +439,30 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu6_fw_isys_resp_info_abi__
 		_cmd_count_next = g_state.capture_cmd_count;
 	      }
 
-	      resp_error = "None";
-	      if (_error)
-		resp_error = ipu6_fw_isys_error_types[err_code];
+	      if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
+		bpf_vprintk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;error=%s|ipu6-trace",
+			    resp_msg_types[type],
+			    source,stream_handle,
+			    send_msg_types[send_type],
+			    isys_error_types[resp_error]);
+	      else
+		bpf_printk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
+			    resp_msg_types[type],
+			    stream_handle);
 
-	      if (send_type < N_IPU_FW_ISYS_SEND_TYPE) {
+	      if (resp_error > 0) {
 		if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		  bpf_vprintk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;err=%s|ipu6-trace",
-			      ipu6_resp_msg_types[type],
-			      source, stream_handle,
-			      ipu6_send_msg_types[send_type],
-			      resp_error);
+		  bpf_vprintk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;resp=%s|ipu6-trace",
+			      isys_error_types[resp_error],
+			      source,stream_handle,
+			      send_msg_types[send_type],
+			      resp_msg_types[type]);
 		else
-		  bpf_printk("B|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
-			     ipu6_resp_msg_types[type],
-			     stream_handle);
-
-		if (_error) {
-		  if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0))
-		    bpf_vprintk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u:%u;sent=%s;resp=%s|ipu6-trace",
-				resp_error,
-				source,stream_handle,
-				ipu6_send_msg_types[send_type],
-				ipu6_resp_msg_types[type]);
-		  else
-		    bpf_printk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
-			       pid,
-			       resp_error,
-			       stream_handle);
-		}
+		  bpf_printk("A|ipu_fw_isys;/dev ipu6|%s|streamid=%u|ipu6-trace",
+			      pid,
+			      isys_error_types[resp_error],
+			      stream_handle);
 	      }
-
 	      // mirror IPU6_ISYS internal state-machine based on ipu6 fw resp type
 	      switch (_state) {
 	      case IPU_FW_ISYS_UNINIT:
@@ -510,57 +508,50 @@ int BPF_KRETPROBE(ipu_fw_isys_get_resp_exit, struct ipu6_fw_isys_resp_info_abi__
 	      // mirror IPU6_ISYS internal state-machine ipu6 fw capture-cmd buffering
 	      if (_cmd_count_next != g_state.capture_cmd_count) {
 		bpf_printk("C|ipu_fw_isys;/dev ipu6|%s/count|%d|ipu6-trace",
-			   ipu6_send_msg_types[_cmd_type],
+			   send_msg_types[_cmd_type],
 			   _cmd_count_next);
 		g_state.capture_cmd_count = _cmd_count_next;
 	      }
+
 	      if (g_state.first) g_state.first = false;
 	    }
 	    g_state.prev_resp_t[index] = type;
 	    break;
 	  }
 	}
+
 	return 0;
 }
 
 
 /*
 */
-SEC("kprobe/ipu6_isys_video_set_streaming")
-int BPF_KPROBE(ipu_isys_video_set_streaming_entry, struct ipu6_isys_video___local *av,
-				 unsigned int state,
-				 struct ipu6_isys_buffer_list___local *bl)
+SEC("kprobe/ipu_isys_video_prepare_streaming")
+int BPF_KPROBE(ipu_isys_video_prepare_streaming_entry, struct ipu_isys_video___local *av, unsigned int state)
 {
 	// get PID of exiting thread/process
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
-	  struct ipu6_isys_stream___local *stream;
-	  stream = (struct ipu6_isys_stream___local *)BPF_CORE_READ(av, stream);
-	  int source;	// SSI stream source
-	  int stream_handle;
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
 
-	  BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	  BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
-
-	  unsigned int nbufs;
-	  BPF_CORE_READ_INTO(&nbufs,  bl, nbufs);
-
-	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=ipu_isys_video_set_streaming;state=%u;nbuf=%d|ipu6-trace",
+	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=ipu_isys_video_prepare_streaming;state=%u|ipu6-trace",
 		      pid,
-		      source,stream_handle,
-		      state, nbufs);
+		      ip.source,
+		      ip.stream_handle,
+		      state); //args
 	} else {
-	  bpf_printk("S|%u|ipu_isys_video|0|state=%u;call=ipu_isys_video_set_streaming|ipu6-trace",
-		      pid,
-		      state);
+	    bpf_printk("S|%u|ipu_isys_video|0|call=ipu_isys_video_prepare_streaming;state=%u|ipu6-trace",
+		       pid,
+		       state); //args
 	}
 	return 0;
 }
 
-SEC("kretprobe/ipu6_isys_video_set_streaming")
-int BPF_KRETPROBE(ipu_isys_video_set_streaming_exit, int ret)
+SEC("kretprobe/ipu_isys_video_prepare_streaming")
+int BPF_KRETPROBE(ipu_isys_video_prepare_streaming_exit, int ret)
 {
 	// get PID of exiting thread/process
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
@@ -571,9 +562,48 @@ int BPF_KRETPROBE(ipu_isys_video_set_streaming_exit, int ret)
 
 /*
 */
+SEC("kprobe/ipu_isys_video_set_streaming")
+int BPF_KPROBE(ipu_isys_video_set_streaming_entry, struct ipu_isys_video___local *av,
+				 unsigned int state,
+				 struct ipu_isys_buffer_list___local *bl)
+{
+	// get PID of exiting thread/process
+	u32 pid = bpf_get_current_pid_tgid()  >> 32;
+
+	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
+
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
+
+	  unsigned int nbufs;
+	  BPF_CORE_READ_INTO(&nbufs,  bl, nbufs);
+
+	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=ipu_isys_video_set_streaming;state=%u;nbuf=%d|ipu6-trace",
+		      pid,
+		      ip.source,ip.stream_handle,
+		      state, nbufs);
+	} else {
+	  bpf_printk("S|%u|ipu_isys_video|0|state=%u;call=ipu_isys_video_set_streaming|ipu6-trace",
+		      pid,
+		      state);
+	}
+	return 0;
+}
+
+SEC("kretprobe/ipu_isys_video_set_streaming")
+int BPF_KRETPROBE(ipu_isys_video_set_streaming_exit, int ret)
+{
+	// get PID of exiting thread/process
+	u32 pid = bpf_get_current_pid_tgid()  >> 32;
+
+	bpf_printk("F|%u|ipu_isys_video|0|ret=%d|ipu6-trace", pid, ret);
+	return 0;
+}
+/*
+*/
 SEC("kprobe/start_stream_firmware")
-int BPF_KPROBE(start_stream_firmware_entry, struct ipu6_isys_video___local *av,
-				 struct ipu6_isys_buffer_list___local *bl)
+int BPF_KPROBE(start_stream_firmware_entry, struct ipu_isys_video___local *av,
+				 struct ipu_isys_buffer_list___local *bl)
 {
 	// get PID of exiting thread/process
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
@@ -589,17 +619,12 @@ int BPF_KPROBE(start_stream_firmware_entry, struct ipu6_isys_video___local *av,
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
-	  struct ipu6_isys_stream___local *stream;
-	  stream = (struct ipu6_isys_stream___local *)BPF_CORE_READ(av, stream);
-	  int source;	// SSI stream source
-	  int stream_handle;
-
-	  BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	  BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
 
 	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=start_stream_firmware;reset=%d|ipu6-trace",
 		      pid,
-		      source,stream_handle,reset); // args
+		      ip.source,ip.stream_handle,reset); // args
 	} else {
 	  bpf_printk("S|%u|ipu_isys_video|0|call=start_stream_firmware;stream=%u;reset=%u|ipu6-trace",
 		      pid,
@@ -616,14 +641,14 @@ int BPF_KRETPROBE(start_stream_firmware_exit, int ret)
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
 
 	bpf_printk("F|%d|ipu_isys_video|0|ret=%d|ipu6-trace", pid, ret);
+	//bpf_printk("graph_ret func=start_stream_firmware ret=%d", ret);
 	return 0;
 }
-
 
 /*
 */
 SEC("kprobe/stop_streaming_firmware")
-int BPF_KPROBE(stop_stream_firmware_entry, struct ipu6_isys_video___local *av)
+int BPF_KPROBE(stop_stream_firmware_entry, struct ipu_isys_video___local *av)
 {
 	// get PID of exiting thread/process
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
@@ -635,17 +660,11 @@ int BPF_KPROBE(stop_stream_firmware_entry, struct ipu6_isys_video___local *av)
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
-	  struct ipu6_isys_stream___local *stream;
-	  stream = (struct ipu6_isys_stream___local *)BPF_CORE_READ(av, stream);
-	  int source;	// SSI stream source
-	  int stream_handle;
-
-	  BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	  BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
-
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
 	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=stop_stream_firmware;active=%d;start=%d|ipu6-trace",
 		      pid,
-		      source, stream_handle,
+		      ip.source, ip.stream_handle,
 		      streaming, start_streaming);
 
 	} else {
@@ -670,7 +689,7 @@ int BPF_KRETPROBE(stop_stream_firmware_exit, int ret)
 /*
 */
 SEC("kprobe/close_streaming_firmware")
-int BPF_KPROBE(close_stream_firmware_entry, struct ipu6_isys_video___local *av)
+int BPF_KPROBE(close_stream_firmware_entry, struct ipu_isys_video___local *av)
 {
 	// get PID of exiting thread/process
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
@@ -684,17 +703,12 @@ int BPF_KPROBE(close_stream_firmware_entry, struct ipu6_isys_video___local *av)
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
-	  struct ipu6_isys_stream___local *stream;
-	  stream = (struct ipu6_isys_stream___local *)BPF_CORE_READ(av, stream);
-	  int source;	// SSI stream source
-	  int stream_handle;
-
-	  BPF_CORE_READ_INTO(&source,  stream, stream_source);
-	  BPF_CORE_READ_INTO(&stream_handle,  stream, stream_handle);
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
 
 	  bpf_vprintk("S|%u|ipu_isys_video|0|streamid=%u:%u;call=close_stream_firmware;active=%d;reset=%d;skip=%d|ipu6-trace",
 		      pid,
-		      source, stream_handle,
+		      ip.source, ip.stream_handle,
 		      streaming, reset, skipframe);
 	} else {
 
@@ -712,5 +726,144 @@ int BPF_KRETPROBE(close_stream_firmware_exit, int ret)
 	u32 pid = bpf_get_current_pid_tgid()  >> 32;
 
 	bpf_printk("F|%d|ipu_isys_video|0|ret=%d|ipu6-trace", pid, ret);
+	return 0;
+}
+
+/*
+*/
+SEC("kprobe/return_buffers")
+int BPF_KPROBE(return_buffers_entry, struct ipu_isys_queue___local *aq,
+				 enum vb2_buffer_state state)
+{
+	// get PID of exiting thread/process
+	u32 pid = bpf_get_current_pid_tgid()  >> 32;
+
+	struct vb2_queue___local vbq;
+	BPF_CORE_READ_INTO(&vbq,  aq, vbq);
+
+	struct ipu_isys_video___local *av = container_of(aq, struct ipu_isys_video___local, aq);
+
+	unsigned int reset;
+	BPF_CORE_READ_INTO(&reset,  av, reset);
+
+	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
+
+	  struct ipu_isys_pipeline___local ip;
+	  BPF_CORE_READ_INTO(&ip,  av, ip);
+
+	  bpf_vprintk("S|%u|ipu_isys_queue|0|streamid=%u:%u;call=return_buffers;used_qbuf=%u;uses_req=%u;state=%s|ipu6-trace",
+		    pid,
+		    ip.source, ip.stream_handle,
+		    vbq.uses_qbuf,vbq.uses_requests,
+		    vb2_buf_state_type[state]); // args
+	} else {
+	  bpf_printk("S|%u|ipu_isys_queue|0|call=return_buffers;used_qbuf=%u;state=%s|ipu6-trace",
+		    pid,
+		    vbq.uses_qbuf,
+		    vb2_buf_state_type[state]); // args
+	}
+	return 0;
+}
+
+SEC("kretprobe/return_buffers")
+int BPF_KRETPROBE(return_buffers_exit, int ret)
+{
+	// get PID of exiting thread/process
+	u32 pid = bpf_get_current_pid_tgid()  >> 32;
+
+	bpf_printk("F|%d|ipu_isys_queue|0|ret=%d|ipu6-trace", pid, ret);
+	//bpf_printk("graph_ret func=start_stream_firmware ret=%d", ret);
+	return 0;
+}
+
+/*
+ DWC PHY
+*/
+SEC("kprobe/dwc_dphy_ifc_read_mask")
+int BPF_KPROBE(dwc_dphy_ifc_read_mask_entry,struct ipu_isys___local *isys, u32 phy_id, u32 addr,
+	       u8 shift, u8 width)
+{
+	// check if PHY state read
+	if (addr != IPU_DWC_DPHY_STATE)
+	  return 0;
+
+	enum phy_fsm_state _state = PHY_FSM_STATE_INVALID;
+	// assume IPU_FW_ISYS_IDLE initial state
+	if (g_state.phy_first) {
+	    for (u8 index = 0; index < IPU_DWC_DPHY_MAX_NUM; index++)
+	      g_state.phy_state[index] = _state;
+	}
+
+	g_state.phyid_state_ret = (int) phy_id;
+	return 0;
+}
+
+SEC("kretprobe/dwc_dphy_ifc_read_mask")
+int BPF_KRETPROBE(dwc_dphy_ifc_read_mask_exit, u32 ret)
+{
+	// check if PHY state read
+	if (g_state.phyid_state_ret < 0)
+	  return 0;
+
+	for (u8 index = 0; index < IPU_DWC_DPHY_MAX_NUM; index++) {
+
+	  if (index == (u8) g_state.phyid_state_ret) {
+
+	    enum phy_fsm_state _state = g_state.phy_state[index];
+	    enum phy_fsm_state _state_next = ret;
+
+	    // DPHY state machine (FSM) :
+	    if (_state != _state_next ) {
+	      if (g_state.phy_first)
+		g_state.phy_first = false;
+	      else if (_state != PHY_FSM_STATE_INVALID)
+		bpf_printk("E|dphy-%u/fsm;/dev ipu6|%s||ipu6-trace",
+			   index,
+			   dphy_fsm_state_types[_state]);
+
+	      if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
+		bpf_vprintk("B|dphy-%u/fsm;/dev ipu6|%s|prev=%s|ipu6-trace",
+			    index,
+			    dphy_fsm_state_types[_state_next],
+			    dphy_fsm_state_types[_state]);
+	      } else {
+		bpf_vprintk("B|dphy-%u/fsm;/dev ipu6|%s|prev=%s|ipu6-trace",
+			    index,
+			    dphy_fsm_state_types[_state_next],
+			    dphy_fsm_state_types[_state]);
+	      }
+	      g_state.phy_state[index] = _state_next;
+	    }
+	    g_state.phyid_state_ret = -1;
+	    break;
+	  }
+	}
+	return 0;
+}
+
+static u32 get_mbps_by_hsfreq(u32 hsfreq)
+{
+        int i;
+
+        for (i = DPHY_FREQ_RANGE_NUM - 1; i >= 0; i--) {
+                if (freqranges[i].hsfreq == hsfreq)
+                        return freqranges[i].default_mbps;
+        }
+
+        return 0;
+}
+
+SEC("kprobe/dwc_dphy_write_mask")
+int BPF_KPROBE(dwc_dphy_write_mask_entry,struct ipu_isys___local *isys, u32 phy_id, u32 addr,
+	       u32 data, u8 shift, u8 width)
+{
+	// check if PHY state read
+	if (addr != IPU_DWC_DPHY_HSFREQRANGE)
+	  return 0;
+
+	bpf_printk("C|ipu_fw_isys;/dev ipu6|dphy-%u/linkfreq|%d|ipu6-trace",
+		   phy_id,
+		   get_mbps_by_hsfreq(data));
+
 	return 0;
 }

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 #include <asm-generic/errno-base.h>
 
-#include "ipu6-isys_ktrace_kern.c"
+#include "ipu6-isys-legacy_ktrace_kern.c"
 /*
  * PSYS 
 */

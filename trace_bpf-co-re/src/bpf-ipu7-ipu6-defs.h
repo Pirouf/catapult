@@ -20,10 +20,17 @@ struct ipu7_isys_csi2___local;
 struct ipu7_isys_queue___local;
 struct ipu7_bus_device___local;
 
+struct ipu6_isys___local;
+struct ipu6_isys_stream___local;
+struct ipu6_isys_video___local;
+struct ipu6_isys_csi2___local;
+struct ipu6_isys_queue___local;
+struct ipu6_bus_device___local;
+
 /**
  * enum ipu_fw_isys_resp_type
  */
-enum ipu_fw_isys_resp_type {
+enum ipu6_fw_isys_resp_type {
 	IPU_FW_ISYS_RESP_TYPE_STREAM_OPEN_DONE = 0,
 	IPU_FW_ISYS_RESP_TYPE_STREAM_START_ACK,
 	IPU_FW_ISYS_RESP_TYPE_STREAM_START_AND_CAPTURE_ACK,
@@ -98,7 +105,7 @@ static const char ipu7_resp_msg_types[N_IPU_INSYS_RESP_TYPE][32] = {
 /**
  * enum ipu_fw_isys_error. Describes the error type detected by the FW
  */
-enum ipu_fw_isys_error {
+enum ipu6_fw_isys_error {
 	IPU_FW_ISYS_ERROR_NONE = 0,	/* No details */
 	IPU_FW_ISYS_ERROR_FW_INTERNAL_CONSISTENCY,	/* enum */
 	IPU_FW_ISYS_ERROR_HW_CONSISTENCY,	/* enum */
@@ -115,7 +122,7 @@ enum ipu_fw_isys_error {
 	N_IPU_FW_ISYS_ERROR
 };
 
-static const char isys_error_types[N_IPU_FW_ISYS_ERROR][32] = {
+static const char ipu6_fw_isys_error_types[N_IPU_FW_ISYS_ERROR][32] = {
         "NONE",     /* No details */
 	"FW_INTERNAL_CONSISTENCY",      /* enum */
 	"HW_CONSISTENCY",       /* enum */
@@ -342,7 +349,7 @@ enum ipu_fw_isys_sensor_type {
 /**
  * enum ipu_fw_isys_send_type
  */
-enum ipu_fw_isys_send_type {
+enum ipu6_fw_isys_send_type {
 	IPU_FW_ISYS_SEND_TYPE_STREAM_OPEN = 0,
 	IPU_FW_ISYS_SEND_TYPE_STREAM_START,
 	IPU_FW_ISYS_SEND_TYPE_STREAM_START_AND_CAPTURE,
@@ -683,6 +690,152 @@ enum ipu_subsys___local {
 
 #define ipu_bus_get_drvdata(adev) dev_get_drvdata(&(adev)->dev)
 
+struct sequence_info___local {
+	unsigned int sequence;
+	u64 timestamp;
+} __attribute__((preserve_access_index));
+
+/*
+ * struct ipu6_isys_stream BTF info
+ *
+ */
+struct ipu6_bus_device___local {
+	struct auxiliary_device___local auxdev;
+	const struct auxiliary_driver___local *auxdrv;
+} __attribute__((preserve_access_index));
+
+struct ipu6_fw_isys_error_info_abi___local {
+	u32 error;
+	u32 error_details;
+} __attribute__((preserve_access_index));
+
+struct ipu6_fw_isys_output_pin_payload_abi___local {
+	u64 out_buf_id;
+	u32 addr;
+	u32 compress;
+} __attribute__((preserve_access_index));
+
+struct ipu6_fw_isys_resp_info_abi___local {
+	u64 buf_id;
+	struct ipu6_fw_isys_output_pin_payload_abi___local pin;
+	struct ipu6_fw_isys_error_info_abi___local error_info;
+	u32 timestamp[2];
+	u8 stream_handle;
+	u8 type;
+	u8 pin_id;
+	u8 reserved;
+	u32 reserved2;
+} __attribute__((preserve_access_index));
+
+
+struct ipu6_insys_capture_output_pin_payload___local {
+	u64 user_token;
+	ia_gofo_addr_t addr;
+	u8 pad[4];
+} __attribute__((preserve_access_index));
+
+struct ipu6_isys_stream___local {
+	struct mutex___local mutex;
+	struct media_entity___local *source_entity;
+	atomic_t sequence;
+	int last_sequence;
+	unsigned int seq_index;
+	struct sequence_info___local seq[IPU_ISYS_MAX_PARALLEL_SOF];
+	int stream_source;
+	int stream_handle;
+	unsigned int nr_output_pins;
+	struct ipu6_isys_subdev___local *asd;
+} __attribute__((preserve_access_index));
+
+/*
+ * struct ipu6_isys BTF info
+ *
+ */
+struct ipu6_isys___local {
+	struct media_device___local media_dev;
+	struct v4l2_device___local v4l2_dev;
+	struct ipu6_bus_device___local *adev;
+
+	int power;
+	spinlock_t power_lock;	/* Serialise access to power */
+	u32 isr_csi2_bits;
+	u32 csi2_rx_ctrl_cached;
+	spinlock_t streams_lock;
+	struct ipu6_isys_stream___local streams[IPU_ISYS_MAX_STREAMS];
+	int streams_ref_count[IPU_ISYS_MAX_STREAMS];
+} __attribute__((preserve_access_index));
+
+
+struct ipu6_isys_pixelformat___local {
+	u32 pixelformat;
+	u32 bpp;
+	u32 bpp_packed;
+	u32 code;
+	u32 css_pixelformat;
+} __attribute__((preserve_access_index));
+
+struct ipu6_isys_buffer_list___local {
+	struct list_head head;
+	unsigned int nbufs;
+} __attribute__((preserve_access_index));
+
+/*
+ * struct ipu6_isys_csi2
+ */
+#define IPU_NR_OF_CSI2_VC		16U
+#define INVALID_VC_ID			-1
+#define IPU_NR_OF_CSI2_SINK_PADS	1U
+#define IPU_CSI2_PAD_SINK		0U
+#define IPU_NR_OF_CSI2_SRC_PADS		16U
+#define IPU_CSI2_PAD_SRC		1U
+#define IPU_NR_OF_CSI2_PADS		(IPU_NR_OF_CSI2_SINK_PADS + \
+					 IPU_NR_OF_CSI2_SRC_PADS)
+struct ipu6_isys_subdev___local {
+	struct v4l2_subdev___local sd;
+	struct ipu6_isys___local *isys;
+	u32 const *supported_codes;
+	struct media_pad___local *pad;
+	struct v4l2_ctrl_handler___local ctrl_handler;
+	void (*ctrl_init)(struct v4l2_subdev___local *sd);
+	int source;	/* SSI stream source; -1 if unset */
+};
+
+struct ipu6_isys_queue___local {
+	struct list_head node;	/* struct ipu6_isys_pipeline.queues */
+	struct vb2_queue___local vbq;
+	struct device___local *dev;
+	spinlock_t lock;
+	struct list_head active;
+	struct list_head incoming;
+} __attribute__((preserve_access_index));
+
+struct ipu6_isys_video___local {
+	struct ipu6_isys_queue___local aq;
+	/* Serialise access to other fields in the struct. */
+	struct mutex___local mutex;
+	struct media_pad___local pad;
+	struct video_device___local vdev;
+	struct v4l2_pix_format___local pix_fmt;
+	struct ipu6_isys___local *isys;
+	struct ipu6_isys_csi2___local *csi2;
+	struct ipu6_isys_stream___local *stream;
+	unsigned int streaming;
+	u8 vc;
+	u8 dt;
+	unsigned int reset;
+	unsigned int skipframe;
+	unsigned int start_streaming;
+} __attribute__((preserve_access_index));
+
+struct ipu6_isys_csi2_pdata___local;
+
+struct ipu6_isys_csi2___local {
+	struct ipu6_isys_subdev___local asd;
+	struct ipu6_isys_csi2_pdata___local *pdata;
+	struct ipu6_isys___local *isys;
+	struct ipu6_isys_video___local av[IPU_NR_OF_CSI2_SRC_PADS];
+} __attribute__((preserve_access_index));
+
 /*
  * struct ipu7_isys_stream BTF info
  *
@@ -690,11 +843,6 @@ enum ipu_subsys___local {
 struct ipu7_bus_device___local {
 	struct auxiliary_device___local auxdev;
 	const struct auxiliary_driver___local *auxdrv;
-} __attribute__((preserve_access_index));
-
-struct sequence_info___local {
-	unsigned int sequence;
-	u64 timestamp;
 } __attribute__((preserve_access_index));
 
 #pragma pack(push, 1)
@@ -723,12 +871,6 @@ struct ipu7_insys_resp___local {
 	u8 frame_id;
 	u8 skip_frame;
 	u16 mipi_fn;
-} __attribute__((preserve_access_index));
-
-struct output_pin_data___local {
-	void (*pin_ready)(struct ipu7_isys_stream___local *stream,
-			  struct ipu_insys_resp___local *info);
-	struct ipu7_isys_queue___local *aq;
 } __attribute__((preserve_access_index));
 
 struct ipu7_isys_stream___local {
@@ -831,49 +973,6 @@ struct ipu7_isys_csi2___local {
 	struct ipu7_isys_csi2_pdata___local *pdata;
 	struct ipu7_isys___local *isys;
 	struct ipu7_isys_video___local av[IPU_NR_OF_CSI2_SRC_PADS];
-} __attribute__((preserve_access_index));
-
-/**
- * struct ipu_fw_isys_error_info_abi
- * @error: error code if something went wrong
- * @error_details: depending on error code, it may contain additional error info
- */
-struct ipu_fw_isys_error_info_abi___local {
-	enum ipu_fw_isys_error error;
-	u32 error_details;
-} __attribute__((preserve_access_index));
-
-/**
- * struct ipu_fw_isys_output_pin_payload_abi
- * @out_buf_id: Points to output pin buffer - buffer identifier
- * @addr: Points to output pin buffer - CSS Virtual Address
- * @compress: Request frame compression (1), or  not (0)
- */
-struct ipu_fw_isys_output_pin_payload_abi___local {
-	u64 out_buf_id;
-	u32 addr;
-	u32 compress;
-} __attribute__((preserve_access_index));
-
-/**
- * struct ipu_fw_isys_resp_info_comm
- * @pin: this var is only valid for pin event related responses,
- *     contains pin addresses
- * @error_info: error information from the FW
- * @timestamp: Time information for event if available
- * @stream_handle: stream id the response corresponds to
- * @type: response type (enum ipu_fw_isys_resp_type)
- * @pin_id: pin id that the pin payload corresponds to
- */
-struct ipu_fw_isys_resp_info_abi___local {
-	u64 buf_id;
-	struct ipu_fw_isys_output_pin_payload_abi___local pin;
-	struct ipu_fw_isys_error_info_abi___local error_info;
-	u32 timestamp[2];
-	u8 stream_handle;
-	u8 type;
-	u8 pin_id;
-	u16 reserved;
 } __attribute__((preserve_access_index));
 
 
