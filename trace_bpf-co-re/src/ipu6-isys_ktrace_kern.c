@@ -203,7 +203,12 @@ int BPF_KPROBE(buf_queue_entry, struct vb2_buffer___local *vb)
 	isys = (struct ipu6_isys___local *)BPF_CORE_READ(av, isys);
 
 	unsigned int reset;
-	BPF_CORE_READ_INTO(&reset,  av, reset);
+	if (bpf_core_field_exists(av->reset)) {
+	  /* ISYS_RESET is supported */
+	  BPF_CORE_READ_INTO(&reset,  av, reset);
+	} else {
+	  /* ISYS_RESET  is NOT supported */
+	}
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
@@ -290,7 +295,12 @@ int BPF_KPROBE(return_buffers_entry, struct ipu6_isys_queue___local *aq,
 	struct ipu6_isys_video___local *av = container_of(aq, struct ipu6_isys_video___local, aq);
 
 	unsigned int reset;
-	BPF_CORE_READ_INTO(&reset,  av, reset);
+	if (bpf_core_field_exists(av->reset)) {
+	  /* ISYS_RESET is supported */
+	  BPF_CORE_READ_INTO(&reset,  av, reset);
+	} else {
+	  /* ISYS_RESET  is NOT supported */
+	}
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
@@ -583,9 +593,14 @@ int BPF_KPROBE(start_stream_firmware_entry, struct ipu6_isys_video___local *av,
 	unsigned int skipframe;
 	unsigned int start_streaming;
 	BPF_CORE_READ_INTO(&streaming,  av, streaming);
-	BPF_CORE_READ_INTO(&reset,  av, reset);
-	BPF_CORE_READ_INTO(&skipframe,  av, skipframe);
-	BPF_CORE_READ_INTO(&start_streaming,  av, start_streaming);
+	if (bpf_core_field_exists(av->reset)) {
+	  /* ISYS_RESET is supported */
+	  BPF_CORE_READ_INTO(&reset,  av, reset);
+	  BPF_CORE_READ_INTO(&skipframe,  av, skipframe);
+	  BPF_CORE_READ_INTO(&start_streaming,  av, start_streaming);
+	} else {
+	  /* ISYS_RESET  is NOT supported */
+	}
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
@@ -631,7 +646,12 @@ int BPF_KPROBE(stop_stream_firmware_entry, struct ipu6_isys_video___local *av)
 	unsigned int streaming;
 	unsigned int start_streaming;
 	BPF_CORE_READ_INTO(&streaming,  av, streaming);
-	BPF_CORE_READ_INTO(&start_streaming,  av, start_streaming);
+	if (bpf_core_field_exists(av->reset)) {
+	  /* ISYS_RESET is supported */
+	  BPF_CORE_READ_INTO(&start_streaming,  av, start_streaming);
+	} else {
+	  /* ISYS_RESET  is NOT supported */
+	}
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
@@ -679,8 +699,13 @@ int BPF_KPROBE(close_stream_firmware_entry, struct ipu6_isys_video___local *av)
 	unsigned int reset;
 	unsigned int skipframe;
 	BPF_CORE_READ_INTO(&streaming,  av, streaming);
-	BPF_CORE_READ_INTO(&reset,  av, reset);
-	BPF_CORE_READ_INTO(&skipframe,  av, skipframe);
+	if (bpf_core_field_exists(av->reset)) {
+	  /* ISYS_RESET is supported */
+	  BPF_CORE_READ_INTO(&reset,  av, reset);
+	  BPF_CORE_READ_INTO(&skipframe,  av, skipframe);
+	} else {
+	  /* ISYS_RESET  is NOT supported */
+	}
 
 	if (LINUX_KERNEL_VERSION > KERNEL_VERSION(5, 19, 0)) {
 
